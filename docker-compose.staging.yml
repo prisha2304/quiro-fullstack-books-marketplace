@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: staging
+      PORT: 5000
+      DB_HOST: ${STAGING_DB_HOST}
+      DB_USER: ${STAGING_DB_USER}
+      DB_PASSWORD: ${STAGING_DB_PASSWORD}
+      DB_NAME: booknest_staging
+      REDIS_HOST: ${STAGING_REDIS_HOST}
+      JWT_SECRET: ${STAGING_JWT_SECRET}
+    ports:
+      - "5000:5000"

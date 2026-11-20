@@ -1,0 +1,17 @@
+{
+  "name": "quiro-marketplace",
+  "version": "1.0.0",
+  "description": "QUIRO Book Marketplace — Local Full-Stack Application",
+  "scripts": {
+    "start": "node scripts/start-local.js",
+    "dev": "node scripts/start-local.js",
+    "dev:server": "cd server && node index.js",
+    "dev:client": "cd client && npm run dev",
+    "build": "cd client && npm run build",
+    "test": "cd server && npm test",
+    "test:smoke": "cd server && npm run test:smoke",
+    "test:swaps": "cd server && npm run test:swaps",
+    "test:payments": "cd server && npm run test:payments"
+  },
+  "private": true
+}

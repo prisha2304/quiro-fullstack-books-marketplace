@@ -1,0 +1,125 @@
+<USER_REQUEST>
+# BookNest Marketplace — Phase 16: AI Intelligence, Book Image Integrity & Real Personalization
+
+## PROJECT
+
+Repository: `E:\booknest_gpt_ag`
+
+The website runs locally. Do not deploy it.
+
+This phase fixes real defects in the existing application. Do not rebuild the platform or add unnecessary features.
+
+Use the supplied screenshots as visual references for the reported problems.
+
+## NON-NEGOTIABLE RULES
+
+1. Audit existing code before editing.
+2. Preserve the current BookNest design and working functionality.
+3. Do not reset, drop, or truncate the database.
+4. Do not replace real application logic with fake success responses.
+5. Do not hardcode a small collection of canned AI answers and claim the assistant is intelligent.
+6. Do not invent book metadata, review counts, prices, or browsing activity.
+7. Never download copyrighted book files or full book scans. Only retrieve legitimate cover images.
+8. Do not scrape websites in violation of their terms.
+9. Do not expose API keys or other secrets.
+10. Do not deploy the application or enable live payments.
+11. Use an external AI provider only when configured. Clearly explain any missing credentials.
+12. Test actual behavior, not merely whether files or endpoints exist.
+
+# PART 1 — FIX NESTAI CONVERSATION QUALITY
+
+## Problem
+
+NestAI responds to certain predefined prompts but often returns generic or repeated answers to other questions.
+
+## Audit
+
+Inspect:
+
+- `aiService.js`
+- `aiProviderAdapter.js`
+- `aiRoutes.js`
+- `aiController.js`
+- AI chat frontend components
+- AI conversation history
+- Provider configuration
+- Catalog retrieval and recommendation services
+- Existing AI prompt templates and fallback responses
+
+Trace a message from the frontend through the backend to the response displayed to the user.
+
+Determine whether each path uses a real LLM, deterministic rules, static responses, or a fallback.
+
+## Required Fix
+
+Implement a genuine conversational flow using the configured LLM provider.
+
+Ne
+<truncated 13136 bytes>
+sts
+- Existing authentication tests
+- Browse/search tests
+- Image upload tests
+- Recommendation tests
+- AI tests
+- Seller listing tests
+- Swap tests
+- Review tests
+- Frontend production build
+
+Add meaningful tests for all newly fixed defects.
+
+Do not modify tests merely to make them pass.
+
+Where browser automation is available, test the real local UI. Otherwise, provide exact manual steps.
+
+## Final report
+
+Create `docs/PHASE16_IMPLEMENTATION_REPORT.md`.
+
+Report:
+
+1. Root cause of each defect.
+2. Files changed.
+3. NestAI behavior and provider status.
+4. Listing optimizer accuracy.
+5. Pricing insight evidence quality.
+6. Number of books with valid cover images before and after the fix.
+7. Number of unresolved cover matches.
+8. Review summary behavior.
+9. Recommendation ranking before and after browsing.
+10. My Listings and Swaps results.
+11. Tests passed and failed.
+12. Build status.
+13. Missing credentials and external service limitations.
+14. Remaining defects.
+
+Use actual database counts and test outputs.
+
+Do not claim all book images are fixed unless the entire existing catalog has been checked.
+
+## FINAL PRIORITY
+
+1. Fix the generic NestAI responses.
+2. Fix incorrect listing AI.
+3. Repair missing book images.
+4. Fix review-summary messaging.
+5. Make recommendations react to actual browsing.
+6. Fix pricing insight quality.
+7. Fix listing and swap API errors.
+8. Run regression tests.
+
+Keep BookNest local. Do not deploy, enable live payments, reset the database, or redesign the website.
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-10-13T20:52:23+05:30.
+
+The user's current state is as follows:
+Active Document: e:\booknest_gpt_ag\docker-compose.yml (LANGUAGE_YAML)
+Cursor is on line: 1
+Other open documents:
+- e:\booknest_gpt_ag\docker-compose.yml (LANGUAGE_YAML)
+Running terminal commands:
+- npm run dev (in e:\booknest_gpt_ag\server, running for 16m35s)
+- npm run dev (in e:\booknest_gpt_ag\client, running for 15m27s)
+</ADDITIONAL_METADATA>

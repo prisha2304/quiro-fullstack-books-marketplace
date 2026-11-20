@@ -1,0 +1,240 @@
+{
+  "timestamp": "2026-11-06T11:43:03.879Z",
+  "totalCatalogBooks": 504,
+  "uniqueBaseTitles": 62,
+  "unresolvedTitleGroups": 12,
+  "unresolvedMatches": [
+    {
+      "baseTitle": "NCERT Chemistry Class 11",
+      "author": "NCERT Board",
+      "genre": "NCERT",
+      "associatedBookCount": 9,
+      "bookIds": [
+        3,
+        51,
+        99,
+        147,
+        195,
+        243,
+        291,
+        339,
+        387
+      ],
+      "reason": "No public scan available in Open Library database",
+      "fallbackApplied": "/uploads/covers/placeholder-ncert-chemistry-class-11.svg"
+    },
+    {
+      "baseTitle": "Chemistry Lab Manual Class 10",
+      "author": "Dr. Gita Sharma",
+      "genre": "School",
+      "associatedBookCount": 27,
+      "bookIds": [
+        4,
+        20,
+        36,
+        52,
+        68,
+        84,
+        100,
+        116,
+        132,
+        148,
+        164,
+        180,
+        196,
+        212,
+        228,
+        244,
+        260,
+        276,
+        292,
+        308,
+        324,
+        340,
+        356,
+        372,
+        388,
+        404,
+        420
+      ],
+      "reason": "No public scan available in Open Library database",
+      "fallbackApplied": "/uploads/covers/placeholder-chemistry-lab-manual-class-10.svg"
+    },
+    {
+      "baseTitle": "Sapiens",
+      "author": "Yuval Noah Harari",
+      "genre": "History",
+      "associatedBookCount": 26,
+      "bookIds": [
+        13,
+        29,
+        45,
+        61,
+        77,
+        93,
+        109,
+        125,
+        141,
+        157,
+        173,
+        189,
+        205,
+        221,
+        237,
+        253,
+        269,
+        285,
+        301,
+        317,
+        333,
+        349,
+        365,
+        381,
+        397,
+        413
+      ],
+      "reason": "No public scan available in Open Library database",
+      "fallbackApplied": "/uploads/covers/placeholder-sapiens.svg"
+    },
+    {
+      "baseTitle": "NCERT Mathematics Class 10",
+      "author": "NCERT Board",
+      "genre": "NCERT",
+      "associatedBookCount": 9,
+      "bookIds": [
+        19,
+        67,
+        115,
+        163,
+        211,
+        259,
+        307,
+        355,
+        403
+      ],
+      "reason": "No public scan available in Open Library database",
+      "fallbackApplied": "/uploads/covers/placeholder-ncert-mathematics-class-10.svg"
+    },
+    {
+      "baseTitle": "Introduction to Algorithms (CLRS)",
+      "author": "Thomas H. Cormen",
+      "genre": "Programming",
+      "associatedBookCount": 9,
+      "bookIds": [
+        33,
+        81,
+        129,
+        177,
+        225,
+        273,
+        321,
+        369,
+        417
+      ],
+      "reason": "No public scan available in Open Library database",
+      "fallbackApplied": "/uploads/covers/placeholder-introduction-to-algorithms-clrs.svg"
+    },
+    {
+      "baseTitle": "Our Pasts: History Class 8",
+      "author": "NCERT Board",
+      "genre": "NCERT",
+      "associatedBookCount": 9,
+      "bookIds": [
+        35,
+        83,
+        131,
+        179,
+        227,
+        275,
+        323,
+        371,
+        419
+      ],
+      "reason": "No public scan available in Open Library database",
+      "fallbackApplied": "/uploads/covers/placeholder-our-pasts-history-class-8.svg"
+    },
+    {
+      "baseTitle": "Verity",
+      "author": "Colleen Hoover",
+      "genre": "Mystery",
+      "associatedBookCount": 5,
+      "bookIds": [
+        40,
+        120,
+        200,
+        280,
+        360
+      ],
+      "reason": "No public scan available in Open Library database",
+      "fallbackApplied": "/uploads/covers/placeholder-verity.svg"
+    },
+    {
+      "baseTitle": "Demon Slayer Vol. 1",
+      "author": "Koyoharu Gotouge",
+      "genre": "Manga",
+      "associatedBookCount": 5,
+      "bookIds": [
+        79,
+        159,
+        239,
+        319,
+        399
+      ],
+      "reason": "No public scan available in Open Library database",
+      "fallbackApplied": "/uploads/covers/placeholder-demon-slayer-vol-1.svg"
+    },
+    {
+      "baseTitle": "Old Engineering Graphics Manual",
+      "author": "Bhatt",
+      "genre": "Engineering",
+      "associatedBookCount": 2,
+      "bookIds": [
+        467,
+        471
+      ],
+      "reason": "No public scan available in Open Library database",
+      "fallbackApplied": "/uploads/covers/placeholder-old-engineering-graphics-manual.svg"
+    },
+    {
+      "baseTitle": "Brand New Calculus",
+      "author": "Stewart",
+      "genre": "Mathematics",
+      "associatedBookCount": 9,
+      "bookIds": [
+        468,
+        472,
+        476,
+        480,
+        484,
+        494,
+        504,
+        514,
+        539
+      ],
+      "reason": "No public scan available in Open Library database",
+      "fallbackApplied": "/uploads/covers/placeholder-brand-new-calculus.svg"
+    },
+    {
+      "baseTitle": "iejop;aj",
+      "author": "gfhjdkx",
+      "genre": "Mystery",
+      "associatedBookCount": 1,
+      "bookIds": [
+        541
+      ],
+      "reason": "No public scan available in Open Library database",
+      "fallbackApplied": "/uploads/covers/placeholder-iejop-aj.svg"
+    },
+    {
+      "baseTitle": "xdgfcbh",
+      "author": "awsdxzc",
+      "genre": "UPSC",
+      "associatedBookCount": 1,
+      "bookIds": [
+        542
+      ],
+      "reason": "No public scan available in Open Library database",
+      "fallbackApplied": "/uploads/covers/placeholder-xdgfcbh.svg"
+    }
+  ]
+}

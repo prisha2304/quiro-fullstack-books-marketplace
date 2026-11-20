@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="folioWine" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#581825"/>
+      <stop offset="100%" stop-color="#722F37"/>
+    </linearGradient>
+    <linearGradient id="folioGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#DFBA5A"/>
+      <stop offset="100%" stop-color="#B88A2E"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded Shield / Book Badge -->
+  <rect width="64" height="64" rx="16" fill="url(#folioWine)"/>
+  <!-- Gold Inner Border -->
+  <rect x="3" y="3" width="58" height="58" rx="13" fill="none" stroke="url(#folioGold)" stroke-width="1.5" stroke-opacity="0.6"/>
+  <!-- Open Folio Stylized Leaves -->
+  <path d="M32 44C27 41 18 41 14 43V22C18 20 27 20 32 23C37 20 46 20 50 22V43C46 41 37 41 32 44Z" fill="#FDFBF7" fill-opacity="0.95"/>
+  <path d="M32 23V44" stroke="#581825" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- Elegant Quill / Foliage Motif Center Top -->
+  <circle cx="32" cy="15" r="2.5" fill="url(#folioGold)"/>
+  <path d="M22 27H28M22 31H28M22 35H27M36 27H42M36 31H42M36 35H41" stroke="#581825" stroke-width="1.2" stroke-linecap="round" stroke-opacity="0.4"/>
+</svg>

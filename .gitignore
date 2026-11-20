@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment Variables & Secrets
+.env
+*.env
+.env.*
+!.env.example
+!.env.*.example
+*/.env
+*/.env.*
+!*/.env.example
+!*/.env.*.example
+
+# Production & Build Artifacts
+dist/
+*/dist/
+build/
+*/build/
+coverage/
+*.log
+
+# Static Local Uploads & Invoices
+server/public/uploads/*
+!server/public/uploads/.gitkeep
+server/uploads/invoices/*
+!server/uploads/invoices/.gitkeep
+
+# Scratch & Temporary
+scratch/
+tmp/
+temp/
+
+# OS and Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local database backups
+backups/

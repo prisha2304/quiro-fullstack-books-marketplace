@@ -1,0 +1,219 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <!-- Background Gradients -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FAF5EE"/>
+      <stop offset="40%" stop-color="#F5ECE0"/>
+      <stop offset="100%" stop-color="#EBE0CF"/>
+    </linearGradient>
+    <radialGradient id="lampGlow" cx="65%" cy="30%" r="55%">
+      <stop offset="0%" stop-color="#FFF8E7" stop-opacity="0.9"/>
+      <stop offset="40%" stop-color="#F9E8B8" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#F5ECE0" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Book Cover Gradients -->
+    <linearGradient id="wineBook" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4A191F"/>
+      <stop offset="20%" stop-color="#722F37"/>
+      <stop offset="85%" stop-color="#5C2229"/>
+      <stop offset="100%" stop-color="#3D151A"/>
+    </linearGradient>
+    <linearGradient id="goldBook" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#9E7432"/>
+      <stop offset="25%" stop-color="#D4AF37"/>
+      <stop offset="85%" stop-color="#C5A059"/>
+      <stop offset="100%" stop-color="#7A5826"/>
+    </linearGradient>
+    <linearGradient id="navyBook" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#141E28"/>
+      <stop offset="25%" stop-color="#1F3246"/>
+      <stop offset="85%" stop-color="#192A3B"/>
+      <stop offset="100%" stop-color="#0E161F"/>
+    </linearGradient>
+    <linearGradient id="forestBook" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#173126"/>
+      <stop offset="25%" stop-color="#244A3A"/>
+      <stop offset="85%" stop-color="#1E3F31"/>
+      <stop offset="100%" stop-color="#10221A"/>
+    </linearGradient>
+    <linearGradient id="amberBook" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#6E381A"/>
+      <stop offset="25%" stop-color="#A55426"/>
+      <stop offset="85%" stop-color="#8F471E"/>
+      <stop offset="100%" stop-color="#542B14"/>
+    </linearGradient>
+    <linearGradient id="pageGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#EDE2D0"/>
+      <stop offset="50%" stop-color="#FBF8F2"/>
+      <stop offset="100%" stop-color="#E2D5C0"/>
+    </linearGradient>
+    <!-- Shelf Wood Gradient -->
+    <linearGradient id="shelfWood" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#523929"/>
+      <stop offset="30%" stop-color="#3D291D"/>
+      <stop offset="100%" stop-color="#261912"/>
+    </linearGradient>
+    <filter id="softShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#4A191F" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <!-- Canvas Background -->
+  <rect width="800" height="600" fill="url(#bgGrad)"/>
+  <rect width="800" height="600" fill="url(#lampGlow)"/>
+
+  <!-- Architectural Background: Elegant Arched Library Niche -->
+  <path d="M120 540V240C120 140 220 80 400 80C580 80 680 140 680 240V540" fill="none" stroke="#D9C9B4" stroke-width="2.5" stroke-dasharray="6 4" opacity="0.6"/>
+  <path d="M140 540V250C140 160 230 100 400 100C570 100 660 160 660 250V540" fill="#F4ECE0" fill-opacity="0.4"/>
+
+  <!-- Distant Bookshelf Elements in Arch -->
+  <g opacity="0.25">
+    <rect x="200" y="150" width="400" height="8" fill="#523929"/>
+    <rect x="220" y="115" width="22" height="35" fill="#4A191F" rx="1"/>
+    <rect x="245" y="110" width="18" height="40" fill="#1F3246" rx="1"/>
+    <rect x="266" y="118" width="26" height="32" fill="#244A3A" rx="1"/>
+    <rect x="295" y="112" width="20" height="38" fill="#D4AF37" rx="1"/>
+    <rect x="318" y="116" width="30" height="34" fill="#722F37" rx="1"/>
+    <rect x="352" y="110" width="24" height="40" fill="#3D291D" rx="1"/>
+    <rect x="380" y="120" width="22" height="30" fill="#1F3246" rx="1"/>
+    <rect x="405" y="114" width="28" height="36" fill="#A55426" rx="1"/>
+    <rect x="436" y="112" width="18" height="38" fill="#244A3A" rx="1"/>
+    <rect x="457" y="118" width="24" height="32" fill="#D4AF37" rx="1"/>
+    <rect x="484" y="110" width="20" height="40" fill="#4A191F" rx="1"/>
+    <rect x="507" y="115" width="26" height="35" fill="#1F3246" rx="1"/>
+    <rect x="536" y="122" width="16" height="28" fill="#722F37" rx="1"/>
+    <rect x="555" y="113" width="24" height="37" fill="#A55426" rx="1"/>
+  </g>
+
+  <!-- Main Wooden Library Table / Credenza Surface -->
+  <g id="table">
+    <rect x="60" y="470" width="680" height="24" rx="3" fill="url(#shelfWood)" filter="url(#softShadow)"/>
+    <rect x="70" y="494" width="660" height="10" fill="#1A110B"/>
+    <!-- Subtle Gold Inlay Line on Wood -->
+    <line x1="80" y1="474" x2="720" y2="474" stroke="#D4AF37" stroke-width="1.2" opacity="0.45"/>
+  </g>
+
+  <!-- Foreground Books Stacks & Arrangements -->
+  <!-- Left Stack: Academic & Professional Hardcovers -->
+  <g id="leftStack" filter="url(#softShadow)">
+    <!-- Bottom Book (Linear Algebra / CS) -->
+    <rect x="110" y="435" width="190" height="35" rx="3" fill="url(#navyBook)"/>
+    <rect x="130" y="440" width="165" height="25" rx="1" fill="url(#pageGrad)"/>
+    <rect x="110" y="435" width="24" height="35" rx="2" fill="#0E161F"/>
+    <line x1="122" y1="440" x2="122" y2="465" stroke="#D4AF37" stroke-width="1.2"/>
+
+    <!-- Middle Book (History & Philosophy) -->
+    <rect x="125" y="402" width="165" height="33" rx="3" fill="url(#forestBook)"/>
+    <rect x="142" y="407" width="143" height="23" rx="1" fill="url(#pageGrad)"/>
+    <rect x="125" y="402" width="22" height="33" rx="2" fill="#10221A"/>
+    <line x1="136" y1="407" x2="136" y2="430" stroke="#D4AF37" stroke-width="1.2"/>
+
+    <!-- Top Book (Literary Classics) -->
+    <rect x="138" y="372" width="142" height="30" rx="3" fill="url(#goldBook)"/>
+    <rect x="152" y="377" width="123" height="20" rx="1" fill="url(#pageGrad)"/>
+    <rect x="138" y="372" width="18" height="30" rx="2" fill="#7A5826"/>
+    <!-- Red Ribbon Bookmark Spilling Over -->
+    <path d="M210 380 Q215 410 218 450 Q222 465 230 470" fill="none" stroke="#722F37" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <!-- Center Focal Group: Upright Standing Literary Volumes (Fiction, Romance, Thriller) -->
+  <g id="uprightGroup" filter="url(#softShadow)">
+    <!-- Book 1: High Fantasy (Deep Navy, Gold Star) -->
+    <g transform="translate(320, 240)">
+      <rect x="0" y="0" width="34" height="230" rx="3" fill="url(#navyBook)"/>
+      <rect x="2" y="10" width="30" height="210" fill="none" stroke="#D4AF37" stroke-width="0.8" opacity="0.6"/>
+      <!-- Gold Embossed Star -->
+      <polygon points="17,35 19,42 26,42 20,46 22,53 17,49 12,53 14,46 8,42 15,42" fill="#D4AF37"/>
+      <text x="17" y="140" fill="#D4AF37" font-family="'Playfair Display', Georgia, serif" font-size="10" font-weight="bold" text-anchor="middle" letter-spacing="3" transform="rotate(-90 17 140)">FANTASY</text>
+    </g>
+
+    <!-- Book 2: Contemporary Fiction (Warm Burgundy - Fable & Folio Hero) -->
+    <g transform="translate(358, 205)">
+      <rect x="0" y="0" width="46" height="265" rx="3" fill="url(#wineBook)"/>
+      <rect x="3" y="12" width="40" height="241" fill="none" stroke="#D4AF37" stroke-width="1.2" opacity="0.8"/>
+      <circle cx="23" cy="42" r="9" fill="none" stroke="#D4AF37" stroke-width="1"/>
+      <path d="M19 42C19 39 23 37 23 37C23 37 27 39 27 42C27 45 23 48 23 48C23 48 19 45 19 42Z" fill="#D4AF37"/>
+      <text x="23" y="160" fill="#FDFBF7" font-family="'Playfair Display', Georgia, serif" font-size="12" font-weight="bold" text-anchor="middle" letter-spacing="4" transform="rotate(-90 23 160)">FOLIO STORIES</text>
+      <!-- Bottom Gilded Lines -->
+      <line x1="8" y1="235" x2="38" y2="235" stroke="#D4AF37" stroke-width="1.2"/>
+      <line x1="12" y1="240" x2="34" y2="240" stroke="#D4AF37" stroke-width="0.8"/>
+    </g>
+
+    <!-- Book 3: Romance & Poetry (Blush / Gold Spine) -->
+    <g transform="translate(408, 250)">
+      <rect x="0" y="0" width="30" height="220" rx="3" fill="url(#goldBook)"/>
+      <rect x="2" y="8" width="26" height="204" fill="none" stroke="#FAF5EE" stroke-width="0.8" opacity="0.7"/>
+      <text x="15" y="130" fill="#2E1C0C" font-family="'Playfair Display', Georgia, serif" font-size="9" font-weight="bold" text-anchor="middle" letter-spacing="3" transform="rotate(-90 15 130)">ROMANCE</text>
+      <circle cx="15" cy="30" r="3" fill="#FAF5EE"/>
+    </g>
+
+    <!-- Book 4: Psychological Thriller (Dark Forest Green) -->
+    <g transform="translate(442, 225)">
+      <rect x="0" y="0" width="40" height="245" rx="3" fill="url(#forestBook)"/>
+      <rect x="3" y="12" width="34" height="221" fill="none" stroke="#C5A059" stroke-width="1" opacity="0.65"/>
+      <text x="20" y="145" fill="#FAF5EE" font-family="'Playfair Display', Georgia, serif" font-size="11" font-weight="bold" text-anchor="middle" letter-spacing="4" transform="rotate(-90 20 145)">MYSTERY</text>
+    </g>
+
+    <!-- Book 5: Leaning Volume (Terracotta Amber Novel) -->
+    <g transform="translate(492, 260) rotate(14)">
+      <rect x="0" y="0" width="36" height="215" rx="3" fill="url(#amberBook)"/>
+      <rect x="2" y="8" width="32" height="199" fill="none" stroke="#D4AF37" stroke-width="0.8" opacity="0.7"/>
+      <text x="18" y="120" fill="#FAF5EE" font-family="'Playfair Display', Georgia, serif" font-size="10" font-weight="bold" text-anchor="middle" letter-spacing="3" transform="rotate(-90 18 120)">MEMOIRS</text>
+    </g>
+  </g>
+
+  <!-- Right Side: Antique Brass Library Lamp -->
+  <g id="libraryLamp" filter="url(#softShadow)">
+    <!-- Base -->
+    <ellipse cx="640" cy="470" rx="42" ry="9" fill="#8C6D2D"/>
+    <ellipse cx="640" cy="467" rx="38" ry="7" fill="#C5A059"/>
+    <!-- Stem Column -->
+    <rect x="637" y="270" width="6" height="198" fill="#B88A2E"/>
+    <circle cx="640" cy="370" r="6" fill="#D4AF37"/>
+    <!-- Curved Arm -->
+    <path d="M640 270 Q640 230 600 230 Q560 230 560 260" fill="none" stroke="#B88A2E" stroke-width="6" stroke-linecap="round"/>
+    <!-- Emerald Green Banker's Lamp Shade -->
+    <path d="M510 290 Q560 260 610 290 L600 300 Q560 275 520 300 Z" fill="#1B4D3E"/>
+    <path d="M515 292 Q560 265 605 292" stroke="#2E7D63" stroke-width="3" fill="none"/>
+    <!-- Lamp Inner Glow -->
+    <ellipse cx="560" cy="296" rx="42" ry="10" fill="#FFF4D0" opacity="0.95"/>
+    <ellipse cx="560" cy="296" rx="30" ry="6" fill="#FFFFFF"/>
+  </g>
+
+  <!-- Open Book Lying in Foreground -->
+  <g id="openFolio" transform="translate(240, 480)" filter="url(#softShadow)">
+    <!-- Spine Ridge -->
+    <ellipse cx="140" cy="38" rx="8" ry="4" fill="#3D151A"/>
+    <!-- Left Pages -->
+    <path d="M140 36 C90 28 30 32 10 38 L14 18 C34 12 90 8 140 16 Z" fill="#FAF5EE"/>
+    <path d="M140 37 C90 30 32 34 12 40 L16 20 C36 14 90 10 140 17 Z" fill="#F4ECE0"/>
+    <!-- Right Pages -->
+    <path d="M140 36 C190 28 250 32 270 38 L266 18 C246 12 190 8 140 16 Z" fill="#FAF5EE"/>
+    <path d="M140 37 C190 30 248 34 268 40 L264 20 C244 14 190 10 140 17 Z" fill="#F4ECE0"/>
+    <!-- Subtle Text Lines on Open Pages -->
+    <g opacity="0.28" stroke="#1C1917" stroke-width="1">
+      <line x1="35" y1="24" x2="115" y2="18"/>
+      <line x1="33" y1="28" x2="118" y2="22"/>
+      <line x1="31" y1="32" x2="120" y2="26"/>
+      <line x1="162" y1="18" x2="245" y2="24"/>
+      <line x1="162" y1="22" x2="247" y2="28"/>
+      <line x1="162" y1="26" x2="249" y2="32"/>
+    </g>
+  </g>
+
+  <!-- Floating Botanical / Coffee Detail -->
+  <g id="coffeeCup" transform="translate(680, 452)">
+    <ellipse cx="20" cy="20" rx="18" ry="7" fill="#E8DCC8" stroke="#C5A059" stroke-width="0.8"/>
+    <path d="M8 20 C8 32 12 36 20 36 C28 36 32 32 32 20 Z" fill="#FDFBF7" stroke="#C5A059" stroke-width="0.8"/>
+    <ellipse cx="20" cy="21" rx="10" ry="4" fill="#4A2613"/>
+  </g>
+
+  <!-- Elegant Brand Crest Overlay (Bottom Center Right) -->
+  <g transform="translate(40, 40)" opacity="0.9">
+    <rect x="0" y="0" width="160" height="42" rx="10" fill="#FAF7F2" fill-opacity="0.9" stroke="#E8E2D8"/>
+    <circle cx="22" cy="21" r="11" fill="#722F37"/>
+    <path d="M22 14L24 19L29 20L25 24L26 29L22 26L18 29L19 24L15 20L20 19Z" fill="#D4AF37" transform="scale(0.55) translate(18, 14)"/>
+    <text x="42" y="20" font-family="'Playfair Display', Georgia, serif" font-size="12" font-weight="bold" fill="#1C1917">Fable &amp; Folio</text>
+    <text x="42" y="32" font-family="'Plus Jakarta Sans', sans-serif" font-size="7" font-weight="bold" letter-spacing="1.5" fill="#722F37">LITERARY ARCHIVE</text>
+  </g>
+</svg>
