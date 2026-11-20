@@ -14,18 +14,17 @@ class EnvironmentConfig {
             user: process.env.DB_USER || 'root',
             database: process.env.DB_NAME || 'booknest_chatgpt_ag',
             port: parseInt(process.env.DB_PORT || '3306', 10),
+            ssl: process.env.DB_SSL === 'true',
             connectionLimit: parseInt(process.env.DB_POOL_LIMIT || '10', 10),
             isConfigured: !!(process.env.DB_NAME && process.env.DB_USER)
         };
     }
 
     getRedisConfig() {
-        const isConfigured = !!(process.env.REDIS_HOST && process.env.REDIS_HOST !== 'localhost');
         return {
-            host: process.env.REDIS_HOST || 'localhost',
-            port: parseInt(process.env.REDIS_PORT || '6379', 10),
-            isConfigured,
-            mode: isConfigured ? 'REDIS_CLUSTER' : 'HIGH_SPEED_IN_MEMORY'
+            isConfigured: false,
+            mode: 'DISABLED_MYSQL_ONLY',
+            note: 'Redis removed in favor of direct MySQL persistence'
         };
     }
 

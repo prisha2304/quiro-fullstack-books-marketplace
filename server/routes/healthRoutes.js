@@ -7,6 +7,24 @@ const { validateEnvironment } = require('../config/envValidator');
 const jobEngineService = require('../services/jobEngineService');
 const webhookService = require('../services/webhookService');
 
+// Root health check endpoint
+router.get('/', async (req, res) => {
+    try {
+        await pool.execute('SELECT 1');
+        return res.status(200).json({
+            status: 'UP',
+            readiness: 'READY_FOR_TRAFFIC',
+            timestamp: new Date().toISOString()
+        });
+    } catch (e) {
+        return res.status(503).json({
+            status: 'DOWN',
+            readiness: 'NOT_READY',
+            error: e.message
+        });
+    }
+});
+
 // Liveness check: Is process running
 router.get('/live', (req, res) => {
     return res.status(200).json({
@@ -50,10 +68,10 @@ router.get('/dependencies', async (req, res) => {
         isHealthy = false;
     }
 
-    // 2. Redis / In-memory Cache
-    checks.cache = {
-        status: process.env.REDIS_HOST ? 'UP' : 'DEGRADED',
-        mode: process.env.REDIS_HOST ? 'REDIS_CLUSTER' : 'HIGH_SPEED_IN_MEMORY'
+    // 2. Database & Persistence Layer
+    checks.persistence = {
+        status: checks.database.status,
+        provider: 'MYSQL'
     };
 
     // 3. Environment & Configuration
@@ -101,7 +119,7 @@ router.get('/diagnostics', async (req, res) => {
             system: {
                 apiStatus: 'HEALTHY',
                 dbStatus,
-                cacheStatus: process.env.REDIS_HOST ? 'REDIS' : 'IN_MEMORY_FALLBACK',
+                persistenceStatus: 'MYSQL_DIRECT',
                 socketStatus: 'CONNECTED',
                 jobEngineStatus: 'RUNNING',
                 uptime: `${Math.floor(process.uptime() / 60)} minutes`

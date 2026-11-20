@@ -1,5 +1,4 @@
 const { pool } = require('../config/db');
-const cache = require('../config/cache');
 
 const TYPO_MAP = {
     'pythn': 'python',
@@ -320,9 +319,23 @@ class SearchService {
     }
 
     /**
-     * Get Trending Searches
+     * Get Trending Searches from persistent MySQL analytics with fallback
      */
     static async getTrendingSearches() {
+        try {
+            const [rows] = await pool.query(
+                'SELECT query, COUNT(*) as count ' +
+                'FROM search_history ' +
+                'WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) ' +
+                'GROUP BY query ' +
+                'ORDER BY count DESC ' +
+                'LIMIT 7'
+            );
+            if (rows.length > 0) {
+                return rows.map(r => r.query);
+            }
+        } catch (e) {}
+
         return [
             'DSA Cormen',
             'Python Crash Course',
@@ -335,14 +348,18 @@ class SearchService {
     }
 
     /**
-     * Log search query analytics safely
+     * Log search query analytics persistently in MySQL
      */
-    static async logSearchEvent(query, resultCount = 0) {
-        // Keeps aggregate popularity in memory / cache
-        const key = `search:count:${query.toLowerCase().slice(0, 40)}`;
+    static async logSearchEvent(query, resultCount = 0, userId = null) {
+        if (!query || typeof query !== 'string') return;
         try {
-            await cache.set(key, (await cache.get(key) || 0) + 1, 3600);
-        } catch (e) {}
+            await pool.query(
+                'INSERT INTO search_history (user_id, query, results_count) VALUES (?, ?, ?)',
+                [userId || null, query.trim().slice(0, 255), resultCount]
+            );
+        } catch (e) {
+            // Non-blocking telemetry
+        }
     }
 }
 

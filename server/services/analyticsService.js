@@ -1,5 +1,4 @@
 const { pool } = require('../config/db');
-const cache = require('../config/cache');
 
 class AnalyticsService {
     /**

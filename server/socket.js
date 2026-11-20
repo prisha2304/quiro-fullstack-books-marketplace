@@ -1,25 +1,72 @@
 const socketIo = require('socket.io');
+const jwt = require('jsonwebtoken');
 
 let io;
 // userId -> { sockets: Set(), lastSeen: Date }
 const userPresence = new Map();
 
 const init = (server) => {
+    const configuredClient = process.env.CLIENT_URL || 'http://localhost:5173';
+    const allowedOrigins = [
+        configuredClient,
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:3000',
+        'http://localhost:5000'
+    ];
+
     io = socketIo(server, {
         cors: {
-            origin: "*",
-            methods: ["GET", "POST"]
+            origin: (origin, callback) => {
+                if (!origin || allowedOrigins.includes(origin)) {
+                    callback(null, true);
+                } else {
+                    callback(new Error('CORS origin rejected by WebSocket gateway'));
+                }
+            },
+            methods: ["GET", "POST"],
+            credentials: true
         },
         pingTimeout: 30000,
         pingInterval: 10000
     });
 
-    io.on('connection', (socket) => {
-        let currentUserId = null;
+    // JWT Handshake Authentication Middleware
+    io.use((socket, next) => {
+        const token = socket.handshake.auth?.token ||
+                      socket.handshake.headers?.authorization?.replace(/^Bearer\s+/i, '');
 
-        socket.on('join', (userId) => {
-            if (!userId) return;
-            currentUserId = String(userId);
+        if (!token) {
+            // Allow guest socket connection for public broadcasts, but without authenticated private room access
+            socket.userId = null;
+            return next();
+        }
+
+        try {
+            if (!process.env.JWT_SECRET) {
+                return next(new Error('WebSocket authentication misconfigured: Missing JWT_SECRET'));
+            }
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            socket.userId = String(decoded.id);
+            return next();
+        } catch (err) {
+            console.warn('[Socket.IO Auth] Handshake rejected: invalid/expired token');
+            return next(new Error('Authentication failed: Invalid or expired token'));
+        }
+    });
+
+    io.on('connection', (socket) => {
+        // Derive user identity strictly from verified JWT token
+        let currentUserId = socket.userId ? String(socket.userId) : null;
+
+        socket.on('join', (claimedUserId) => {
+            // Disallow joining if unauthenticated
+            if (!socket.userId) {
+                return;
+            }
+
+            // Bind strictly to authenticated token ID ΓÇö prevent client from spoofing another user's room
+            currentUserId = String(socket.userId);
 
             // Join personal room for atomic targeted broadcasts
             socket.join(`user_${currentUserId}`);

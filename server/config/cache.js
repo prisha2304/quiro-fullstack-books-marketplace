@@ -1,46 +1,12 @@
-﻿const Redis = require('ioredis');
-
+/**
+ * In-Memory / Pass-through Cache Manager for QUIRO.
+ * Redis has been removed in favor of direct MySQL persistence and high-speed in-memory caching.
+ */
 class CacheManager {
     constructor() {
         this.isRedisAvailable = false;
         this.memoryStore = new Map();
         this.ttlStore = new Map();
-
-        const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-        
-        try {
-            this.redis = new Redis(redisUrl, {
-                maxRetriesPerRequest: 1,
-                connectTimeout: 2000,
-                lazyConnect: true,
-                retryStrategy: (times) => {
-                    if (times > 2) {
-                        return null; // Stop retrying, use in-memory
-                    }
-                    return 1000;
-                }
-            });
-
-            this.redis.connect()
-                .then(() => {
-                    this.isRedisAvailable = true;
-                    console.log('⚡ Redis Cache Connected Successfully');
-                })
-                .catch(() => {
-                    this.isRedisAvailable = false;
-                    console.log('⚡ Redis Offline -> Using High-Speed In-Memory Cache Fallback');
-                });
-
-            this.redis.on('error', () => {
-                this.isRedisAvailable = false;
-            });
-        } catch (e) {
-            this.isRedisAvailable = false;
-            console.log('⚡ Using In-Memory Cache Fallback');
-        }
-
-        // Cleanup expired memory keys periodically
-        setInterval(() => this.cleanupMemoryStore(), 60000);
     }
 
     cleanupMemoryStore() {
@@ -54,16 +20,6 @@ class CacheManager {
     }
 
     async get(key) {
-        if (this.isRedisAvailable) {
-            try {
-                const data = await this.redis.get(key);
-                return data ? JSON.parse(data) : null;
-            } catch (e) {
-                this.isRedisAvailable = false;
-            }
-        }
-
-        // Memory fallback
         const expireTime = this.ttlStore.get(key);
         if (expireTime && expireTime <= Date.now()) {
             this.memoryStore.delete(key);
@@ -76,57 +32,31 @@ class CacheManager {
 
     async set(key, value, ttlSeconds = 300) {
         const serialized = JSON.stringify(value);
-
-        if (this.isRedisAvailable) {
-            try {
-                await this.redis.set(key, serialized, 'EX', ttlSeconds);
-                return true;
-            } catch (e) {
-                this.isRedisAvailable = false;
-            }
-        }
-
-        // Memory fallback
         this.memoryStore.set(key, serialized);
-        this.ttlStore.set(key, Date.now() + ttlSeconds * 1000);
+        this.ttlStore.set(key, Date.now() + (ttlSeconds * 1000));
         return true;
     }
 
     async del(key) {
-        if (this.isRedisAvailable) {
-            try {
-                await this.redis.del(key);
-            } catch (e) {}
-        }
         this.memoryStore.delete(key);
         this.ttlStore.delete(key);
+        return true;
     }
 
     async delPattern(pattern) {
         const regexPattern = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
-
-        if (this.isRedisAvailable) {
-            try {
-                const keys = await this.redis.keys(pattern);
-                if (keys.length > 0) {
-                    await this.redis.del(keys);
-                }
-            } catch (e) {}
-        }
-
-        // In-memory pattern deletion
         for (const key of this.memoryStore.keys()) {
             if (regexPattern.test(key)) {
                 this.memoryStore.delete(key);
                 this.ttlStore.delete(key);
             }
         }
+        return true;
     }
 
-    // Express route caching middleware
+    // Express route caching middleware (pass-through / in-memory cache)
     cacheMiddleware(ttlSeconds = 300) {
         return async (req, res, next) => {
-            // Only cache GET requests
             if (req.method !== 'GET') {
                 return next();
             }

@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const { 
     chat, 
@@ -46,20 +45,7 @@ const upload = multer({
     }
 });
 
-// Optional authentication middleware that extracts user info
-const optionalAuth = (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.split(' ')[1];
-        try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-            req.user = decoded;
-        } catch (e) {
-            req.user = null;
-        }
-    }
-    next();
-};
+const { optionalAuth } = require('../middleware/authMiddleware');
 
 router.use(optionalAuth);
 

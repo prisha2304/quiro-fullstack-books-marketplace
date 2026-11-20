@@ -1,13 +1,14 @@
+const dotenv = require('dotenv');
+dotenv.config();
+
 const express = require('express');
 const cors = require('cors');
-const dotenv = require('dotenv');
 const http = require('http');
 const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const socket = require('./socket');
-const cache = require('./config/cache');
-const { pool } = require('./config/db');
+const { pool, connectDB } = require('./config/db');
 const logger = require('./services/logger');
 const { validateEnvironment } = require('./config/envValidator');
 const requestContextMiddleware = require('./middleware/requestContextMiddleware');
@@ -46,8 +47,6 @@ const intelligenceRoutes = require('./routes/intelligenceRoutes');
 const healthRoutes = require('./routes/healthRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
 
-dotenv.config();
-
 // Validate Environment on Startup
 try {
     const envCheck = validateEnvironment();
@@ -58,6 +57,11 @@ try {
         process.exit(1);
     }
 }
+
+// Verify Database Connectivity on Startup
+connectDB().catch(err => {
+    logger.error('Database connection warning on startup', { error: err.message });
+});
 
 const app = express();
 const server = http.createServer(app);
@@ -165,7 +169,7 @@ app.use('/api/v1/webhooks', webhookRoutes);
 // 3. Core API Routes (with /api/v1 versioned aliases)
 function registerRoutes(prefix) {
     app.use(`${prefix}/auth`, authRoutes);
-    app.use(`${prefix}/categories`, cache.cacheMiddleware(600), categoryRoutes);
+    app.use(`${prefix}/categories`, categoryRoutes);
     app.use(`${prefix}/recommendations`, recommendationRoutes);
     app.use(`${prefix}/books`, bookRoutes);
     app.use(`${prefix}/users`, userRoutes);
@@ -236,12 +240,6 @@ async function gracefulShutdown(signal) {
         // 2. Close MySQL connection pool
         await pool.end();
         logger.info('MySQL database connection pool closed cleanly');
-
-        // 3. Close Redis connection if active
-        if (cache && cache.client && typeof cache.client.quit === 'function') {
-            await cache.client.quit();
-            logger.info('Redis connection closed cleanly');
-        }
 
         logger.info('Graceful shutdown complete. Exiting process safely.');
         process.exit(0);

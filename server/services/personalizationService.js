@@ -1,7 +1,6 @@
 const { pool } = require('../config/db');
 const { NotificationService, NOTIFICATION_TYPES } = require('./notificationService');
 const socket = require('../socket');
-const cache = require('../config/cache');
 
 class PersonalizationService {
     /**

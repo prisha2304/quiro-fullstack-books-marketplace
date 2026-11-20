@@ -9,11 +9,11 @@ function validateEnvironment() {
 
     const optional = [
         'DB_HOST',
+        'DB_PORT',
+        'DB_SSL',
         'DB_USER',
         'DB_PASSWORD',
         'PORT',
-        'REDIS_HOST',
-        'REDIS_PORT',
         'RAZORPAY_KEY_ID',
         'RAZORPAY_KEY_SECRET',
         'CLOUDINARY_CLOUD_NAME'
@@ -30,7 +30,6 @@ function validateEnvironment() {
         database: (process.env.DB_NAME && process.env.DB_USER) ? 'CONFIGURED' : 'PARTIAL',
         jwt: process.env.JWT_SECRET ? 'CONFIGURED' : 'MISSING',
         payments: (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) ? 'CONFIGURED' : 'NOT_CONFIGURED',
-        cache: process.env.REDIS_HOST ? 'CONFIGURED' : 'IN_MEMORY_FALLBACK',
         cloudinary: (process.env.CLOUDINARY_CLOUD_NAME) ? 'CONFIGURED' : 'LOCAL_STORAGE_FALLBACK'
     };
 
