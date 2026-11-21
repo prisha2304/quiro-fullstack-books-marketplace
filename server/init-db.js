@@ -36,6 +36,19 @@ const initDB = async () => {
         console.log('Applying base schema to database...');
         await connection.query(schema);
 
+        // Ensure notifications table has entity_type, entity_id, action_url if pre-existing
+        const [notifCols] = await connection.query('DESCRIBE notifications');
+        const notifColNames = notifCols.map(c => c.Field);
+        if (!notifColNames.includes('entity_type')) {
+            await connection.query('ALTER TABLE notifications ADD COLUMN entity_type VARCHAR(50) NULL AFTER message');
+        }
+        if (!notifColNames.includes('entity_id')) {
+            await connection.query('ALTER TABLE notifications ADD COLUMN entity_id INT NULL AFTER entity_type');
+        }
+        if (!notifColNames.includes('action_url')) {
+            await connection.query('ALTER TABLE notifications ADD COLUMN action_url VARCHAR(255) NULL AFTER entity_id');
+        }
+
         console.log(`Database '${dbName}' initialized successfully with base schema!`);
     } catch (error) {
         console.error('Error initializing database:', error.message);

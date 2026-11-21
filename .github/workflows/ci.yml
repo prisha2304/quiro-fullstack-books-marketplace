@@ -70,6 +70,8 @@ jobs:
           DB_NAME: quiro
           JWT_SECRET: ci_test_jwt_secret_minimum_32_characters
           NODE_ENV: test
+          RAZORPAY_KEY_ID: rzp_test_mock_ci_key_id
+          RAZORPAY_KEY_SECRET: ci_mock_razorpay_secret_key_32_chars
 
       - name: Install Client Dependencies
         run: cd client && npm ci

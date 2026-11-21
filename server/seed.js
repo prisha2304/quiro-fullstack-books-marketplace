@@ -121,20 +121,23 @@ const seed = async () => {
         } else {
             console.log('Generating large books dataset...');
         
-        // High quality cover images from Unsplash
+        // Publication-grade catalog covers (Open Library & SVG placeholders)
         const covers = [
-            'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=400',
-            'https://images.unsplash.com/photo-1589998059171-988d887df646?auto=format&fit=crop&q=80&w=400',
-            'https://images.unsplash.com/photo-1541963463532-d68292c34b19?auto=format&fit=crop&q=80&w=400',
-            'https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&q=80&w=400',
-            'https://images.unsplash.com/photo-1531988042231-d39a9cc12a9a?auto=format&fit=crop&q=80&w=400',
-            'https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&q=80&w=400',
-            'https://images.unsplash.com/photo-1509248961158-e54f6934749c?auto=format&fit=crop&q=80&w=400',
-            'https://images.unsplash.com/photo-1589829085413-56de8ae18c73?auto=format&fit=crop&q=80&w=400',
-            'https://images.unsplash.com/photo-1531243269054-5ebf6f3b0b6e?auto=format&fit=crop&q=80&w=400',
-            'https://images.unsplash.com/photo-1618666012174-83b441c0bc76?auto=format&fit=crop&q=80&w=400',
-            'https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&q=80&w=400',
-            'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&q=80&w=400'
+            'https://covers.openlibrary.org/b/id/1176573-L.jpg',
+            'https://covers.openlibrary.org/b/id/10880864-L.jpg',
+            '/uploads/covers/placeholder-ncert-chemistry-class-11.svg',
+            '/uploads/covers/placeholder-chemistry-lab-manual-class-10.svg',
+            'https://covers.openlibrary.org/b/id/8353683-L.jpg',
+            'https://covers.openlibrary.org/b/id/14627509-L.jpg',
+            'https://covers.openlibrary.org/b/id/7418786-L.jpg',
+            'https://covers.openlibrary.org/b/id/9407338-L.jpg',
+            'https://covers.openlibrary.org/b/id/10400033-L.jpg',
+            'https://covers.openlibrary.org/b/id/15196183-L.jpg',
+            'https://covers.openlibrary.org/b/id/12539702-L.jpg',
+            'https://covers.openlibrary.org/b/id/8858487-L.jpg',
+            '/uploads/covers/placeholder-sapiens.svg',
+            'https://covers.openlibrary.org/b/id/11320203-L.jpg',
+            'https://covers.openlibrary.org/b/id/1041608-L.jpg'
         ];
 
         const baseBooks = {
@@ -261,7 +264,7 @@ const seed = async () => {
         const listLanguages = ['English', 'Hindi', 'Tamil', 'Spanish'];
         
         let counter = 0;
-        const totalTarget = 420;
+        const totalTarget = 505;
         
         console.log('Writing books to database...');
         

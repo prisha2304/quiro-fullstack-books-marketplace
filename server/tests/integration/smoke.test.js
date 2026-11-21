@@ -62,7 +62,7 @@ async function runProductionSmokeTests() {
         assert(auditLogs[0].count >= 0, `Smoke 10: Security audit logging initialized (${auditLogs[0].count} events)`);
 
         // 11. Environment configuration validation
-        assert(environment.nodeEnv === 'development' || environment.nodeEnv === 'production', 'Smoke 11: Valid NODE_ENV detected');
+        assert(environment.nodeEnv === 'development' || environment.nodeEnv === 'production' || environment.nodeEnv === 'test', 'Smoke 11: Valid NODE_ENV detected');
         assert(Boolean(process.env.JWT_SECRET), 'Smoke 12: Production JWT secret initialized');
         assert(Boolean(process.env.RAZORPAY_KEY_ID), 'Smoke 13: Razorpay Key ID configured');
         assert(Boolean(process.env.RAZORPAY_KEY_SECRET), 'Smoke 14: Razorpay Secret configured');

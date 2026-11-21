@@ -14,6 +14,26 @@ class MigrationService {
                 executed_at DATETIME DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
+
+        // Defensive: ensure notifications has entity_type, entity_id, action_url if table exists
+        try {
+            const [tables] = await pool.execute("SHOW TABLES LIKE 'notifications'");
+            if (tables.length > 0) {
+                const [cols] = await pool.execute("DESCRIBE notifications");
+                const colNames = cols.map(c => c.Field);
+                if (!colNames.includes('entity_type')) {
+                    await pool.execute("ALTER TABLE notifications ADD COLUMN entity_type VARCHAR(50) NULL AFTER message");
+                }
+                if (!colNames.includes('entity_id')) {
+                    await pool.execute("ALTER TABLE notifications ADD COLUMN entity_id INT NULL AFTER entity_type");
+                }
+                if (!colNames.includes('action_url')) {
+                    await pool.execute("ALTER TABLE notifications ADD COLUMN action_url VARCHAR(255) NULL AFTER entity_id");
+                }
+            }
+        } catch (e) {
+            logger.warn(`Notifications schema verification notice: ${e.message}`);
+        }
     }
 
     async getExecutedMigrations() {
