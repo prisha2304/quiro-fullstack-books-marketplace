@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "db:init": "node init-db.js",
+    "db:migrate": "node migrate.js",
+    "db:seed": "node seed.js && node ../scripts/seed-local-test-accounts.js",
     "test": "node tests/run_all_tests.js",
     "test:swaps": "node tests/swaps/exchange_workflow.test.js",
     "test:payments": "node tests/payments/quiro_payments.test.js",

@@ -1,23 +1,15 @@
-const mysql = require('./node_modules/mysql2/promise');
-const dotenv = require('./node_modules/dotenv');
-dotenv.config({ path: 'server/.env' });
+const { pool } = require('./config/db');
 
 async function runPhase18Migration() {
     console.log('================================================================================');
-    console.log(' BOOKNEST -> FABLE & FOLIO — PHASE 18 DATABASE MIGRATION');
+    console.log(' BOOKNEST -> QUIRO — PHASE 18 DATABASE MIGRATION');
     console.log('================================================================================');
 
     let connection;
     try {
-        connection = await mysql.createConnection({
-            host: process.env.DB_HOST || 'localhost',
-            user: process.env.DB_USER || 'root',
-            password: process.env.DB_PASSWORD || '',
-            database: process.env.DB_NAME || 'quiro',
-            port: process.env.DB_PORT || 3306
-        });
+        connection = await pool.getConnection();
 
-        console.log('✔ Connected to database:', process.env.DB_NAME || 'quiro');
+        console.log('✔ Connected to database via pool');
 
         // 1. Audit categories table columns and extend if needed
         const [catCols] = await connection.query('DESCRIBE categories');
@@ -175,23 +167,26 @@ async function runPhase18Migration() {
         const [bookCount] = await connection.query('SELECT COUNT(*) as cnt FROM books');
         console.log(`✔ Verified total catalog books: ${bookCount[0].cnt} records completely preserved`);
 
-        // 8. Log migration to schema_migrations
-        await connection.query(`
-            INSERT INTO schema_migrations (migration_name, phase, status)
-            VALUES ('migrate_phase18', 'Phase 18', 'SUCCESS')
-            ON DUPLICATE KEY UPDATE status = 'SUCCESS', executed_at = CURRENT_TIMESTAMP
-        `);
-        console.log('✔ Migration registered in schema_migrations');
-
         console.log('================================================================================');
         console.log(' PHASE 18 DATABASE MIGRATION COMPLETED SUCCESSFULLY');
         console.log('================================================================================');
     } catch (err) {
         console.error('❌ Migration failed:', err);
-        process.exit(1);
+        throw err;
     } finally {
-        if (connection) await connection.end();
+        if (connection) connection.release();
     }
 }
 
-runPhase18Migration();
+const migrate = runPhase18Migration;
+
+module.exports = { migrate, runPhase18Migration };
+
+if (require.main === module) {
+    migrate()
+        .then(() => process.exit(0))
+        .catch(err => {
+            console.error('❌ Migration failed:', err);
+            process.exit(1);
+        });
+}

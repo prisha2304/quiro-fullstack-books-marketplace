@@ -3,30 +3,42 @@ const bcrypt = require('bcryptjs');
 
 const seed = async () => {
     try {
-        console.log('Cleaning up existing database tables for fresh seed (TRUNCATE)...');
-        await pool.query('SET FOREIGN_KEY_CHECKS = 0');
-        const tables = [
-            'payments', 'order_items', 'orders', 'cart_items', 'wishlists', 
-            'swap_requests', 'notifications', 'reviews', 'books', 'categories', 
-            'coupons', 'users', 'user_activity', 'messages', 'conversations'
-        ];
-        for (const table of tables) {
-            const [checkTable] = await pool.query(`SHOW TABLES LIKE '${table}'`);
-            if (checkTable.length > 0) {
-                await pool.query(`TRUNCATE TABLE ${table}`);
-            }
-        }
-        await pool.query('SET FOREIGN_KEY_CHECKS = 1');
-        console.log('Tables truncated successfully.');
+        // Check if existing user records are present to prevent accidental data loss
+        const [userCheck] = await pool.query('SELECT COUNT(*) as count FROM users');
+        const existingUserCount = userCheck[0]?.count || 0;
+        const force = process.argv.includes('--force') || process.env.FORCE_SEED === 'true';
 
-        // 1. Create Sellers and Users
+        if (force) {
+            console.log('Force flag detected: cleaning up database tables (TRUNCATE)...');
+            await pool.query('SET FOREIGN_KEY_CHECKS = 0');
+            const tables = [
+                'payments', 'order_items', 'orders', 'cart_items', 'wishlists',
+                'swap_requests', 'notifications', 'reviews', 'books',
+                'coupons', 'users', 'user_activity', 'messages', 'conversations'
+            ];
+            for (const table of tables) {
+                const [checkTable] = await pool.query(`SHOW TABLES LIKE '${table}'`);
+                if (checkTable.length > 0) {
+                    await pool.query(`TRUNCATE TABLE ${table}`);
+                }
+            }
+            await pool.query('SET FOREIGN_KEY_CHECKS = 1');
+            console.log('Tables truncated successfully.');
+        } else {
+            console.log(`Safe seed mode: preserving existing database schema, taxonomy, and records (${existingUserCount} existing users).`);
+        }
+
+        // 1. Create Sellers and Users (Safe & Idempotent)
         const hashedPassword = await bcrypt.hash('password123', 10);
         
         // Official BookNest Admin
-        await pool.execute(
-            'INSERT INTO users (full_name, username, email, password, role) VALUES (?, ?, ?, ?, ?)',
-            ['BookNest Official', 'official_booknest', 'official@booknest.com', hashedPassword, 'ADMIN']
-        );
+        const [existingAdmin] = await pool.execute('SELECT id FROM users WHERE email = ?', ['official@booknest.com']);
+        if (existingAdmin.length === 0) {
+            await pool.execute(
+                'INSERT INTO users (full_name, username, email, password, role) VALUES (?, ?, ?, ?, ?)',
+                ['BookNest Official', 'official_booknest', 'official@booknest.com', hashedPassword, 'ADMIN']
+            );
+        }
         
         // Community Sellers
         const communitySellers = [
@@ -38,10 +50,13 @@ const seed = async () => {
         ];
         
         for (const [name, username, email] of communitySellers) {
-            await pool.execute(
-                'INSERT INTO users (full_name, username, email, password, role) VALUES (?, ?, ?, ?, ?)',
-                [name, username, email, hashedPassword, 'USER']
-            );
+            const [existingSeller] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
+            if (existingSeller.length === 0) {
+                await pool.execute(
+                    'INSERT INTO users (full_name, username, email, password, role) VALUES (?, ?, ?, ?, ?)',
+                    [name, username, email, hashedPassword, 'USER']
+                );
+            }
         }
         
         // Get all user ids
@@ -75,7 +90,10 @@ const seed = async () => {
         ];
 
         for (const [name, icon] of categories) {
-             await pool.execute('INSERT INTO categories (name, icon) VALUES (?, ?)', [name, icon]);
+            const [existingCat] = await pool.execute('SELECT id FROM categories WHERE name = ?', [name]);
+            if (existingCat.length === 0) {
+                await pool.execute('INSERT INTO categories (name, icon) VALUES (?, ?)', [name, icon]);
+            }
         }
 
         // 3. Seed Coupons
@@ -85,14 +103,23 @@ const seed = async () => {
             ['DEAL10', 10, 50.00, 100.00]
         ];
         for (const [code, pct, maxD, minO] of coupons) {
-            await pool.execute(
-                'INSERT INTO coupons (code, discount_percent, max_discount, min_order_value) VALUES (?, ?, ?, ?)',
-                [code, pct, maxD, minO]
-            );
+            const [existingCoupon] = await pool.execute('SELECT id FROM coupons WHERE code = ?', [code]);
+            if (existingCoupon.length === 0) {
+                await pool.execute(
+                    'INSERT INTO coupons (code, discount_percent, max_discount, min_order_value) VALUES (?, ?, ?, ?)',
+                    [code, pct, maxD, minO]
+                );
+            }
         }
 
-        // 4. Generate Book Dataset
-        console.log('Generating large books dataset...');
+        // 4. Generate Book Dataset if needed
+        const [bookCheck] = await pool.execute('SELECT COUNT(*) as count FROM books');
+        const existingBookCount = bookCheck[0]?.count || 0;
+
+        if (existingBookCount > 0 && !force) {
+            console.log(`ℹ️ Catalog already populated with ${existingBookCount} books. Preserving existing book records.`);
+        } else {
+            console.log('Generating large books dataset...');
         
         // High quality cover images from Unsplash
         const covers = [
@@ -302,13 +329,19 @@ const seed = async () => {
                 [book.id, reviewerId, book.seller_id, rating, 'Excellent condition and very polite exchange. Fast ship!']
             );
         }
+        }
 
-        console.log(`Reseeded successfully! Seeded ${counter} books, 3 coupons, reviews, and 6 active users.`);
-        process.exit(0);
+        console.log(`Seed completed successfully! Active users, coupons, categories, and catalog verified.`);
     } catch (error) {
         console.error('Fatal seeding error:', error);
-        process.exit(1);
+        throw error;
     }
 };
 
-seed();
+module.exports = { seed };
+
+if (require.main === module) {
+    seed()
+        .then(() => process.exit(0))
+        .catch(() => process.exit(1));
+}

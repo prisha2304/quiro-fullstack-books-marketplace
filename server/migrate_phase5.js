@@ -1,4 +1,4 @@
-﻿const { pool } = require('./config/db');
+const { pool } = require('./config/db');
 
 async function migrate() {
     console.log('Creating Phase 5 tables...');
@@ -92,7 +92,15 @@ async function migrate() {
     `);
 
     console.log('Phase 5 tables created successfully!');
-    process.exit(0);
 }
 
-migrate().catch(e => { console.error('Migration error:', e); process.exit(1); });
+module.exports = { migrate };
+
+if (require.main === module) {
+    migrate()
+        .then(() => process.exit(0))
+        .catch(e => {
+            console.error('Migration error:', e);
+            process.exit(1);
+        });
+}

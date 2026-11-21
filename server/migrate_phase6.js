@@ -77,10 +77,15 @@ async function migrate() {
     `);
 
     console.log('Phase 6 tables created successfully!');
-    process.exit(0);
 }
 
-migrate().catch(e => {
-    console.error('Phase 6 migration error:', e);
-    process.exit(1);
-});
+module.exports = { migrate };
+
+if (require.main === module) {
+    migrate()
+        .then(() => process.exit(0))
+        .catch(e => {
+            console.error('Phase 6 migration error:', e);
+            process.exit(1);
+        });
+}

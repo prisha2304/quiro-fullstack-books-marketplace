@@ -61,11 +61,21 @@ async function migratePhase11() {
         console.log('✔ security_events table ready');
 
         console.log('--- Phase 11 Migration Completed Successfully ---');
-        process.exit(0);
     } catch (err) {
         console.error('❌ Phase 11 Migration Failed:', err);
-        process.exit(1);
+        throw err;
     }
 }
 
-migratePhase11();
+const migrate = migratePhase11;
+
+module.exports = { migrate, migratePhase11 };
+
+if (require.main === module) {
+    migrate()
+        .then(() => process.exit(0))
+        .catch(err => {
+            console.error('❌ Phase 11 Migration Failed:', err);
+            process.exit(1);
+        });
+}

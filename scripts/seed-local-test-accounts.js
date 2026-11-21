@@ -85,11 +85,16 @@ async function seedLocalAccounts() {
     console.log('2. Seller: seller@booknest.local / Password@123');
     console.log('3. Admin:  admin@booknest.local  / Password@123');
     console.log('====================================================\n');
-    process.exit(0);
   } catch (err) {
     console.error('Error seeding test accounts:', err.message);
-    process.exit(1);
+    throw err;
   }
 }
 
-seedLocalAccounts();
+module.exports = { seedLocalAccounts };
+
+if (require.main === module) {
+  seedLocalAccounts()
+    .then(() => process.exit(0))
+    .catch(() => process.exit(1));
+}

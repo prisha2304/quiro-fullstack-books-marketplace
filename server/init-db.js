@@ -1,33 +1,57 @@
 const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const initDB = async () => {
+    const host = process.env.DB_HOST || 'localhost';
+    const isLocalhost = host === 'localhost' || host === '127.0.0.1';
+    let port = 3306;
+    if (!isLocalhost) {
+        port = parseInt(process.env.DB_PORT || '4000', 10);
+    } else if (process.env.DB_PORT && process.env.DB_PORT !== '4000') {
+        port = parseInt(process.env.DB_PORT, 10);
+    }
+
+    const dbName = process.env.DB_NAME || 'quiro';
+
     const connection = await mysql.createConnection({
-        host: process.env.DB_HOST || 'localhost',
+        host,
+        port,
         user: process.env.DB_USER || 'root',
         password: process.env.DB_PASSWORD || '',
         multipleStatements: true
     });
 
     try {
-        console.log('Creating database if not exists...');
-        await connection.query(`CREATE DATABASE IF NOT EXISTS ${process.env.DB_NAME || 'quiro'}`);
-        await connection.query(`USE ${process.env.DB_NAME || 'quiro'}`);
+        console.log(`Creating database '${dbName}' if not exists...`);
+        await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
+        await connection.query(`USE \`${dbName}\``);
 
         console.log('Reading schema.sql...');
-        const schema = fs.readFileSync(path.join(__dirname, '../schema.sql'), 'utf8');
+        const schemaPath = path.resolve(__dirname, '../schema.sql');
+        const schema = fs.readFileSync(schemaPath, 'utf8');
 
-        console.log('Applying schema...');
+        console.log('Applying base schema to database...');
         await connection.query(schema);
 
-        console.log('Database initialized successfully!');
+        console.log(`Database '${dbName}' initialized successfully with base schema!`);
     } catch (error) {
         console.error('Error initializing database:', error.message);
+        throw error;
     } finally {
         await connection.end();
     }
 };
 
-initDB();
+if (require.main === module) {
+    initDB()
+        .then(() => process.exit(0))
+        .catch(err => {
+            console.error('Database initialization failed:', err);
+            process.exit(1);
+        });
+}
+
+module.exports = { initDB };

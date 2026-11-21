@@ -37,14 +37,29 @@ jobs:
       - name: Install Server Dependencies
         run: cd server && npm ci
 
-      - name: Run Database Migrations
-        run: cd server && npm run db:migrate || node migrate.js
+      - name: Initialize Database Schema
+        run: cd server && npm run db:init
         env:
           DB_HOST: 127.0.0.1
           DB_USER: root
           DB_PASSWORD: test_password
           DB_NAME: quiro
-          JWT_SECRET: ci_test_jwt_secret_minimum_32_characters
+
+      - name: Run Database Migrations
+        run: cd server && npm run db:migrate
+        env:
+          DB_HOST: 127.0.0.1
+          DB_USER: root
+          DB_PASSWORD: test_password
+          DB_NAME: quiro
+
+      - name: Seed Database Fixtures
+        run: cd server && npm run db:seed
+        env:
+          DB_HOST: 127.0.0.1
+          DB_USER: root
+          DB_PASSWORD: test_password
+          DB_NAME: quiro
 
       - name: Execute Automated Test Runner (Smoke, Brand, Regression, Payments & Swaps)
         run: cd server && npm test

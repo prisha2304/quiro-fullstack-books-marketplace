@@ -136,8 +136,10 @@ async function migratePhase8() {
     }
 }
 
+const migrate = migratePhase8;
+
 if (require.main === module) {
     migratePhase8().then(() => process.exit(0)).catch(() => process.exit(1));
 }
 
-module.exports = { migratePhase8 };
+module.exports = { migrate, migratePhase8 };

@@ -50,7 +50,7 @@ class MigrationService {
             const migrate =
                 typeof migrationModule === 'function'
                     ? migrationModule
-                    : migrationModule.migrate;
+                    : migrationModule?.migrate;
 
             if (typeof migrate !== 'function') {
                 throw new Error(
