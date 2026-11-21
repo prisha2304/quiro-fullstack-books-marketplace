@@ -6,7 +6,7 @@ services:
     container_name: booknest_dev_mysql
     environment:
       MYSQL_ROOT_PASSWORD: dev_password
-      MYSQL_DATABASE: booknest_chatgpt_ag
+      MYSQL_DATABASE: quiro
     ports:
       - "3306:3306"
     volumes:

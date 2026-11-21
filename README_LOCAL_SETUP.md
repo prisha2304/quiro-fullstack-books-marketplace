@@ -33,7 +33,7 @@ booknest_gpt_ag/
 The backend reads configuration from `server/.env`. A pre-configured development environment is included:
 
 - **Port**: `5000`
-- **Database**: `booknest_chatgpt_ag` on `localhost:3306`
+- **Database**: `quiro` on `localhost:3306`
 - **Auth**: JWT Authentication
 - **Payments**: Sandbox Mock Mode (`PAYMENT_MODE=sandbox`)
 - **AI Operations**: Local Heuristic Fallback Engine

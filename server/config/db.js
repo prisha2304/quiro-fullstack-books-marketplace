@@ -19,11 +19,8 @@ function getDbConfig() {
         ? { minVersion: 'TLSv1.2', rejectUnauthorized: true }
         : undefined;
 
-    // Default to configured DB_NAME, or fallback to existing local catalog database if quiro is not present locally
-    let database = process.env.DB_NAME || 'booknest_chatgpt_ag';
-    if (isLocalhost && database === 'quiro') {
-        database = 'booknest_chatgpt_ag';
-    }
+    // Default to configured DB_NAME, or fallback to quiro
+    const database = process.env.DB_NAME || 'quiro';
 
     return {
         host,

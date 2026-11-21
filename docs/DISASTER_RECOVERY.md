@@ -13,7 +13,7 @@
 ### A. Logical Hot Backup (mysqldump)
 Run daily during non-peak campus hours (e.g., 03:00 AM IST):
 ```bash
-mysqldump -u root -p --single-transaction --quick --routines --triggers booknest_chatgpt_ag > backup_$(date +%Y%m%d_%H%M%S).sql
+mysqldump -u root -p --single-transaction --quick --routines --triggers quiro > backup_$(date +%Y%m%d_%H%M%S).sql
 ```
 
 ### B. Compression & Secure Storage
@@ -35,13 +35,13 @@ curl -X PUT http://localhost:5000/api/intelligence/feature-flags/MAINTENANCE_MOD
 
 ### Step 2: Target Database Preparation
 ```sql
-DROP DATABASE IF EXISTS booknest_chatgpt_ag;
-CREATE DATABASE booknest_chatgpt_ag CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+DROP DATABASE IF EXISTS quiro;
+CREATE DATABASE quiro CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
 ### Step 3: Stream Restore
 ```bash
-gunzip < backup_20260925.sql.gz | mysql -u root -p booknest_chatgpt_ag
+gunzip < backup_20260925.sql.gz | mysql -u root -p quiro
 ```
 
 ### Step 4: Run Post-Restore Migration Validation

@@ -7,7 +7,7 @@ services:
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root_secure_password}
-      MYSQL_DATABASE: ${DB_NAME:-booknest_chatgpt_ag}
+      MYSQL_DATABASE: ${DB_NAME:-quiro}
     ports:
       - "3306:3306"
     volumes:
@@ -30,7 +30,7 @@ services:
       DB_HOST: mysql
       DB_USER: root
       DB_PASSWORD: ${DB_PASSWORD:-root_secure_password}
-      DB_NAME: ${DB_NAME:-booknest_chatgpt_ag}
+      DB_NAME: ${DB_NAME:-quiro}
       JWT_SECRET: ${JWT_SECRET:-production_jwt_secret_min_32_chars_long}
       CLIENT_URL: ${CLIENT_URL:-http://localhost}
     ports:

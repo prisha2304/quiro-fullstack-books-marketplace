@@ -15,7 +15,7 @@ async function backupDatabase() {
     if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `backup_${process.env.DB_NAME || 'booknest'}_${timestamp}.sql`;
+    const filename = `backup_${process.env.DB_NAME || 'quiro'}_${timestamp}.sql`;
     const targetFile = path.join(backupDir, filename);
 
     console.log(`📦 Initiating database backup to ${filename}...`);

@@ -26,7 +26,7 @@ NODE_ENV=development
 DB_HOST=localhost
 DB_USER=root
 DB_PASSWORD=your_mysql_password
-DB_NAME=booknest_chatgpt_ag
+DB_NAME=quiro
 DB_PORT=3306
 
 # Authentication & Security

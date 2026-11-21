@@ -12,7 +12,7 @@ class EnvironmentConfig {
         return {
             host: process.env.DB_HOST || 'localhost',
             user: process.env.DB_USER || 'root',
-            database: process.env.DB_NAME || 'booknest_chatgpt_ag',
+            database: process.env.DB_NAME || 'quiro',
             port: parseInt(process.env.DB_PORT || '3306', 10),
             ssl: process.env.DB_SSL === 'true',
             connectionLimit: parseInt(process.env.DB_POOL_LIMIT || '10', 10),

@@ -13,8 +13,8 @@ const initDB = async () => {
 
     try {
         console.log('Creating database if not exists...');
-        await connection.query(`CREATE DATABASE IF NOT EXISTS ${process.env.DB_NAME || 'booknest_chatgpt_ag'}`);
-        await connection.query(`USE ${process.env.DB_NAME || 'booknest_chatgpt_ag'}`);
+        await connection.query(`CREATE DATABASE IF NOT EXISTS ${process.env.DB_NAME || 'quiro'}`);
+        await connection.query(`USE ${process.env.DB_NAME || 'quiro'}`);
 
         console.log('Reading schema.sql...');
         const schema = fs.readFileSync(path.join(__dirname, '../schema.sql'), 'utf8');
