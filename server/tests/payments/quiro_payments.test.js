@@ -6,6 +6,20 @@ const { getDbConfig } = require('../../config/db');
 const crypto = require('crypto');
 const Razorpay = require('razorpay');
 
+// Mock Razorpay order creation for deterministic automated testing
+const origAddResources = Razorpay.prototype.addResources;
+Razorpay.prototype.addResources = function() {
+    origAddResources.call(this);
+    this.orders.create = async (params) => ({
+        id: `order_mock_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        entity: 'order',
+        amount: params.amount,
+        currency: params.currency || 'INR',
+        receipt: params.receipt,
+        status: 'created'
+    });
+};
+
 const Swap = require('../../models/Swap');
 const Book = require('../../models/Book');
 const PaymentService = require('../../services/paymentService');
@@ -30,6 +44,8 @@ async function runTests() {
     }
 
     const conn = await mysql.createConnection(getDbConfig());
+    let bookAId = null;
+    let bookBId = null;
 
     try {
         // -----------------------------------------------------------------
@@ -84,16 +100,16 @@ async function runTests() {
 
         // Create temporary books for isolated swap flow
         const [bookA] = await conn.execute(`
-            INSERT INTO books (seller_id, title, author, isbn, price, \`condition\`, genre, status, swap_enabled)
-            VALUES (?, 'QUIRO Test Book A', 'Author A', '9781111111111', 250.00, 'Like New', 'Fiction', 'available', 1)
+            INSERT INTO books (seller_id, title, author, isbn, price, \`condition\`, genre, status, swap_enabled, cover_image)
+            VALUES (?, 'QUIRO Test Book A', 'Author A', '9781111111111', 250.00, 'Like New', 'Fiction', 'available', 1, '/images/covers/default-book.png')
         `, [userA.id]);
-        const bookAId = bookA.insertId;
+        bookAId = bookA.insertId;
 
         const [bookB] = await conn.execute(`
-            INSERT INTO books (seller_id, title, author, isbn, price, \`condition\`, genre, status, swap_enabled)
-            VALUES (?, 'QUIRO Test Book B', 'Author B', '9782222222222', 300.00, 'Good', 'Mystery', 'available', 1)
+            INSERT INTO books (seller_id, title, author, isbn, price, \`condition\`, genre, status, swap_enabled, cover_image)
+            VALUES (?, 'QUIRO Test Book B', 'Author B', '9782222222222', 300.00, 'Good', 'Mystery', 'available', 1, '/images/covers/default-book.png')
         `, [userB.id]);
-        const bookBId = bookB.insertId;
+        bookBId = bookB.insertId;
 
         // User B discovers User A's book
         const discoverBForA = await Swap.getDiscoverable(userB.id, { limit: 50 });
@@ -264,20 +280,32 @@ async function runTests() {
         const detailsAfterConsent = await Swap.getSwapDetails(swapDirectId, userA.id);
         assert(detailsAfterConsent.isEmailRevealed === true, 'Email revealed after mutual consent');
         assert(detailsAfterConsent.requester_email === userB.email, 'User A can now see User B verified email');
-
-        // Clean up test books
-        await conn.execute('DELETE FROM books WHERE id IN (?, ?)', [bookAId, bookBId]);
+    } catch (err) {
+        console.error('Test execution failed:', err);
+        failed++;
+    } finally {
+        // Guaranteed independent cleanup of test books even if test operations or partner inserts fail
+        if (bookAId) {
+            try {
+                await conn.execute('DELETE FROM books WHERE id = ?', [bookAId]);
+            } catch (cleanupErr) {
+                // Ignore teardown cleanup errors
+            }
+        }
+        if (bookBId) {
+            try {
+                await conn.execute('DELETE FROM books WHERE id = ?', [bookBId]);
+            } catch (cleanupErr) {
+                // Ignore teardown cleanup errors
+            }
+        }
 
         console.log('\n====================================================');
         console.log(`TOTAL TESTS: ${passed + failed} | PASSED: ${passed} | FAILED: ${failed}`);
         console.log('====================================================');
 
-        await conn.end();
-        process.exit(failed > 0 ? 1 : 0);
-    } catch (err) {
-        console.error('Test execution failed:', err);
         if (conn) await conn.end();
-        process.exit(1);
+        process.exit(failed > 0 ? 1 : 0);
     }
 }
 

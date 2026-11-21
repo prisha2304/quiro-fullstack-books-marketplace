@@ -3,6 +3,21 @@ const axios = require('axios');
 const jwt = require('jsonwebtoken');
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const { pool } = require('../../config/db');
+const Razorpay = require('razorpay');
+
+// Mock Razorpay order creation for deterministic automated testing
+const origAddResources = Razorpay.prototype.addResources;
+Razorpay.prototype.addResources = function() {
+    origAddResources.call(this);
+    this.orders.create = async (params) => ({
+        id: `order_mock_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        entity: 'order',
+        amount: params.amount,
+        currency: params.currency || 'INR',
+        receipt: params.receipt,
+        status: 'created'
+    });
+};
 
 // Start server in-process if not already listening
 const { app, server } = require('../../index');
@@ -48,6 +63,9 @@ async function runTests() {
         }
     }
 
+    let bookAId = null;
+    let bookBId = null;
+
     try {
         // Find 2 distinct active users
         const [users] = await pool.execute('SELECT id, full_name, email, role FROM users WHERE role = "user" LIMIT 2');
@@ -75,17 +93,16 @@ async function runTests() {
         assert(Array.isArray(configRes.data.courierStages) && configRes.data.courierStages.length === 10, 'Config returns exact 10 courier stages');
 
         // Setup test books
-        await pool.execute('DELETE FROM books WHERE title LIKE "QUIRO_TEST_BOOK_%"');
         const [bookA] = await pool.execute(
-            'INSERT INTO books (seller_id, title, author, isbn, price, `condition`, genre, status, swap_enabled) VALUES (?, "QUIRO_TEST_BOOK_A", "Author A", "9781111111111", 250, "Like New", "Fiction", "available", 1)',
+            'INSERT INTO books (seller_id, title, author, isbn, price, `condition`, genre, status, swap_enabled, cover_image) VALUES (?, "QUIRO_TEST_BOOK_A", "Author A", "9781111111111", 250, "Like New", "Fiction", "available", 1, "/images/covers/default-book.png")',
             [userA.id]
         );
         const [bookB] = await pool.execute(
-            'INSERT INTO books (seller_id, title, author, isbn, price, `condition`, genre, status, swap_enabled) VALUES (?, "QUIRO_TEST_BOOK_B", "Author B", "9782222222222", 300, "Good", "Mystery", "available", 1)',
+            'INSERT INTO books (seller_id, title, author, isbn, price, `condition`, genre, status, swap_enabled, cover_image) VALUES (?, "QUIRO_TEST_BOOK_B", "Author B", "9782222222222", 300, "Good", "Mystery", "available", 1, "/images/covers/default-book.png")',
             [userB.id]
         );
-        const bookAId = bookA.insertId;
-        const bookBId = bookB.insertId;
+        bookAId = bookA.insertId;
+        bookBId = bookB.insertId;
 
         // Propose swap: User A proposes to User B
         const swapCreate = await axios.post(`${API_BASE}/swaps/request`, {
@@ -266,9 +283,21 @@ async function runTests() {
         const confB = await axios.post(`${API_BASE}/swaps/${directSwapId}/confirm-completion`, {}, { headers: { 'Authorization': `Bearer ${tokenB}` } });
         assert(confB.data.completed === true, 'Direct exchange completed after mutual receipt confirmation');
         assert(confB.data.message.includes('Your books have found their next readers!'), 'Polished completion message returned');
-
-        // Clean up test books
-        await pool.execute('DELETE FROM books WHERE id IN (?, ?)', [bookAId, bookBId]);
+    } catch (err) {
+        console.error('Test execution error:', err.response?.data || err.message);
+        failed++;
+    } finally {
+        // Guaranteed independent cleanup of test books even if test operations or partner inserts fail
+        if (bookAId) {
+            try {
+                await pool.execute('DELETE FROM books WHERE id = ?', [bookAId]);
+            } catch (cleanupErr) {}
+        }
+        if (bookBId) {
+            try {
+                await pool.execute('DELETE FROM books WHERE id = ?', [bookBId]);
+            } catch (cleanupErr) {}
+        }
 
         console.log('\n====================================================');
         console.log(`TOTAL TESTS: ${passed + failed} | PASSED: ${passed} | FAILED: ${failed}`);
@@ -278,13 +307,7 @@ async function runTests() {
             serverInstance.close();
         }
 
-        setTimeout(() => process.exit(failed > 0 ? 1 : 0), 500);
-    } catch (err) {
-        console.error('Test execution error:', err.response?.data || err.message);
-        if (serverInstance && typeof serverInstance.close === 'function') {
-            serverInstance.close();
-        }
-        setTimeout(() => process.exit(1), 500);
+        setTimeout(() => process.exit(failed > 0 || !passed ? 1 : 0), 500);
     }
 }
 
