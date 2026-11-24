@@ -9,6 +9,7 @@ const {
     getUsers, 
     updateUser, 
     deleteUser,
+    revokeUserTokens,
     getBooks,
     updateBook,
     getCategories,
@@ -43,6 +44,7 @@ router.delete('/announcements/:id', deleteAnnouncement);
 router.get('/users', getUsers);
 router.put('/users/:id', updateUser);
 router.delete('/users/:id', deleteUser);
+router.post('/users/:id/revoke-tokens', revokeUserTokens);
 
 router.get('/books', getBooks);
 router.put('/books/:id', updateBook);

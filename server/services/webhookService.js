@@ -3,14 +3,33 @@ const { pool } = require('../config/db');
 const logger = require('./logger');
 const metricsService = require('./metricsService');
 const { withTransaction } = require('../utils/dbTransaction');
+const Swap = require('../models/Swap');
 
 class WebhookService {
-    verifySignature(payload, signature, secret) {
+    verifySignature(payload, signature, secret, rawBody = null) {
         if (!signature || !secret) return false;
         try {
+            let dataToVerify;
+            if (rawBody && Buffer.isBuffer(rawBody)) {
+                dataToVerify = rawBody;
+            } else if (rawBody && typeof rawBody === 'string') {
+                dataToVerify = Buffer.from(rawBody, 'utf8');
+            } else if (typeof payload === 'string') {
+                dataToVerify = Buffer.from(payload, 'utf8');
+            } else if (Buffer.isBuffer(payload)) {
+                dataToVerify = payload;
+            } else {
+                // In production, signature verification without rawBody is prohibited
+                if (process.env.NODE_ENV === 'production') {
+                    logger.error('Webhook verification failed: rawBody buffer is required in production');
+                    return false;
+                }
+                dataToVerify = Buffer.from(JSON.stringify(payload), 'utf8');
+            }
+
             const expectedSignature = crypto
                 .createHmac('sha256', secret)
-                .update(typeof payload === 'string' ? payload : JSON.stringify(payload))
+                .update(dataToVerify)
                 .digest('hex');
 
             const sigBuf = Buffer.from(signature, 'utf8');
@@ -23,16 +42,38 @@ class WebhookService {
         }
     }
 
+    getWebhookSecret(overrideSecret = null) {
+        const isProduction = process.env.NODE_ENV === 'production';
+        if (overrideSecret) {
+            if (isProduction && process.env.RAZORPAY_KEY_SECRET && overrideSecret === process.env.RAZORPAY_KEY_SECRET && overrideSecret !== process.env.RAZORPAY_WEBHOOK_SECRET) {
+                return null;
+            }
+            return overrideSecret;
+        }
+        if (isProduction) {
+            return process.env.RAZORPAY_WEBHOOK_SECRET || null;
+        }
+        return process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET || null;
+    }
+
     async processPaymentWebhook({ 
         eventId, 
         eventType, 
         payload, 
         signature = null, 
-        secret = (process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET) 
+        secret = null,
+        rawBody = null
     }) {
         if (!eventId || !eventType) {
-            throw new Error('Event ID and Event Type are required');
+            const err = new Error('Event ID and Event Type are required');
+            err.statusCode = 400;
+            err.code = 'VALIDATION_ERROR';
+            err.isOperational = true;
+            throw err;
         }
+
+        const isProduction = process.env.NODE_ENV === 'production';
+        const effectiveSecret = this.getWebhookSecret(secret);
 
         // 1. Replay and Idempotency Protection Check
         const [existing] = await pool.execute(
@@ -55,30 +96,60 @@ class WebhookService {
         }
 
         // 2. Signature verification: mandatory when secret is configured or in production
-        if (secret) {
+        if (effectiveSecret) {
             if (!signature) {
                 await pool.execute(
                     `UPDATE payment_webhook_events SET status = 'FAILED', error_reason = 'Missing webhook signature' WHERE event_id = ?`,
                     [eventId]
                 );
                 metricsService.recordWebhookFailure('MISSING_SIGNATURE');
-                throw new Error('Webhook signature missing in request header');
+                const err = new Error('Webhook signature missing in request header');
+                err.statusCode = 400;
+                err.code = 'MISSING_SIGNATURE';
+                err.isOperational = true;
+                throw err;
             }
 
-            const isValid = this.verifySignature(payload, signature, secret);
+            const hasRawData = Boolean(
+                (rawBody && (Buffer.isBuffer(rawBody) || typeof rawBody === 'string')) ||
+                typeof payload === 'string' ||
+                Buffer.isBuffer(payload)
+            );
+            if (isProduction && !hasRawData) {
+                await pool.execute(
+                    `UPDATE payment_webhook_events SET status = 'FAILED', error_reason = 'Missing raw request body in production' WHERE event_id = ?`,
+                    [eventId]
+                );
+                metricsService.recordWebhookFailure('MISSING_RAW_BODY');
+                const err = new Error('Webhook verification failed: raw request body is required in production');
+                err.statusCode = 500;
+                err.code = 'INTERNAL_ERROR';
+                throw err;
+            }
+
+            const isValid = this.verifySignature(payload, signature, effectiveSecret, rawBody);
             if (!isValid) {
                 await pool.execute(
                     `UPDATE payment_webhook_events SET status = 'FAILED', error_reason = 'Invalid signature' WHERE event_id = ?`,
                     [eventId]
                 );
                 metricsService.recordWebhookFailure('INVALID_SIGNATURE');
-                throw new Error('Webhook signature verification failed');
+                const err = new Error('Webhook signature verification failed');
+                err.statusCode = 401;
+                err.code = 'INVALID_SIGNATURE';
+                err.isOperational = true;
+                throw err;
             }
             await pool.execute(
                 `UPDATE payment_webhook_events SET status = 'VERIFIED' WHERE event_id = ?`,
                 [eventId]
             );
-        } else if (process.env.NODE_ENV === 'production') {
+        } else if (isProduction) {
+            await pool.execute(
+                `UPDATE payment_webhook_events SET status = 'FAILED', error_reason = 'Webhook secret not configured in production' WHERE event_id = ?`,
+                [eventId]
+            ).catch(() => {});
+            metricsService.recordWebhookFailure('MISSING_WEBHOOK_SECRET');
             throw new Error('Webhook secret is not configured in production environment');
         }
 
@@ -195,6 +266,28 @@ class WebhookService {
                                 );
                             }
                         }
+
+                        // Step 8D: Also handle swap_payments — refund.created → REFUND_PENDING (never marks REFUNDED)
+                        if (razorpayPaymentId && razorpayRefundId) {
+                            const refundAmountRupees = refundEntity.amount ? parseFloat(refundEntity.amount) / 100 : null;
+                            const [swapCheck] = await conn.execute(
+                                'SELECT DISTINCT swap_id FROM swap_payments WHERE razorpay_payment_id = ? LIMIT 1',
+                                [razorpayPaymentId]
+                            );
+                            if (swapCheck.length > 0) {
+                                const swapId = swapCheck[0].swap_id;
+                                const finalizeResult = await Swap.finalizeSwapPaymentRefund(conn, {
+                                    swapId,
+                                    razorpayPaymentId,
+                                    razorpayRefundId,
+                                    refundAmountRupees,
+                                    currency: refundEntity.currency || 'INR',
+                                    incomingStatus: 'created',
+                                    actorLabel: 'WEBHOOK'
+                                });
+                                logger.info('[webhookService] refund.created handled for swap_payments', { swapId, finalizeResult });
+                            }
+                        }
                     }
                     break;
                 }
@@ -237,6 +330,28 @@ class WebhookService {
                                 [isFull ? 'refunded' : 'partially_refunded', p.order_id]
                             );
                         }
+
+                        // Step 8D: Also handle swap_payments — refund.processed → REFUNDED (books released if all done)
+                        if (razorpayPaymentId && razorpayRefundId) {
+                            const refundAmountRupees = refundEntity?.amount ? parseFloat(refundEntity.amount) / 100 : null;
+                            const [swapCheck] = await conn.execute(
+                                'SELECT DISTINCT swap_id FROM swap_payments WHERE razorpay_payment_id = ? LIMIT 1',
+                                [razorpayPaymentId]
+                            );
+                            if (swapCheck.length > 0) {
+                                const swapId = swapCheck[0].swap_id;
+                                const finalizeResult = await Swap.finalizeSwapPaymentRefund(conn, {
+                                    swapId,
+                                    razorpayPaymentId,
+                                    razorpayRefundId,
+                                    refundAmountRupees,
+                                    currency: refundEntity?.currency || 'INR',
+                                    incomingStatus: 'processed',
+                                    actorLabel: 'WEBHOOK'
+                                });
+                                logger.info('[webhookService] refund.processed handled for swap_payments', { swapId, finalizeResult });
+                            }
+                        }
                     }
                     break;
                 }
@@ -249,6 +364,28 @@ class WebhookService {
                              WHERE razorpay_refund_id = ?`,
                             [razorpayRefundId]
                         );
+
+                        // Step 8D: Also handle swap_payments — refund.failed → REFUND_FAILED (books NEVER released)
+                        if (razorpayPaymentId) {
+                            const refundAmountRupees = refundEntity?.amount ? parseFloat(refundEntity.amount) / 100 : null;
+                            const [swapCheck] = await conn.execute(
+                                'SELECT DISTINCT swap_id FROM swap_payments WHERE razorpay_payment_id = ? LIMIT 1',
+                                [razorpayPaymentId]
+                            );
+                            if (swapCheck.length > 0) {
+                                const swapId = swapCheck[0].swap_id;
+                                const finalizeResult = await Swap.finalizeSwapPaymentRefund(conn, {
+                                    swapId,
+                                    razorpayPaymentId,
+                                    razorpayRefundId,
+                                    refundAmountRupees,
+                                    currency: refundEntity?.currency || 'INR',
+                                    incomingStatus: 'failed',
+                                    actorLabel: 'WEBHOOK'
+                                });
+                                logger.info('[webhookService] refund.failed handled for swap_payments', { swapId, finalizeResult });
+                            }
+                        }
                     }
                     break;
                 }

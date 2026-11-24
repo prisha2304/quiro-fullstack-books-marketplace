@@ -4,6 +4,7 @@ const Announcement = require('../models/Announcement');
 const { NotificationService } = require('../services/notificationService');
 const PaymentService = require('../services/paymentService');
 const socket = require('../socket');
+const User = require('../models/User');
 
 const getAuditLogs = async (req, res) => {
     try {
@@ -427,6 +428,31 @@ const processOrderRefund = async (req, res) => {
     }
 };
 
+const revokeUserTokens = async (req, res) => {
+    try {
+        const targetUserId = parseInt(req.params.id, 10);
+        if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+            return res.status(400).json({ message: 'Invalid user ID' });
+        }
+
+        const existingUser = await User.findById(targetUserId);
+        if (!existingUser) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        await User.incrementTokenVersion(targetUserId);
+        const updatedUser = await User.findById(targetUserId);
+
+        res.json({
+            message: 'User tokens revoked successfully',
+            userId: targetUserId,
+            token_version: updatedUser.token_version
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Error revoking user tokens', error: error.message });
+    }
+};
+
 module.exports = {
     getDashboardStats,
     getAuditLogs,
@@ -436,6 +462,7 @@ module.exports = {
     getUsers,
     updateUser,
     deleteUser,
+    revokeUserTokens,
     getBooks,
     updateBook,
     getCategories,

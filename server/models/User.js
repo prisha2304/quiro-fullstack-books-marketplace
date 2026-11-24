@@ -46,7 +46,7 @@ class User {
 
     static async findById(id) {
         const [rows] = await pool.execute(
-            'SELECT id, username, email, full_name, role, phone, profile_image, college, bio, status, created_at, updated_at FROM users WHERE id = ?',
+            'SELECT id, username, email, full_name, role, phone, profile_image, college, bio, status, token_version, created_at, updated_at FROM users WHERE id = ?',
             [id]
         );
         return rows[0];
@@ -76,8 +76,19 @@ class User {
     }
 
     static async updatePassword(id, hashedPassword) {
-        await pool.execute('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, id]);
-        return true;
+        const [result] = await pool.execute(
+            'UPDATE users SET password = ?, token_version = COALESCE(token_version, 1) + 1 WHERE id = ?',
+            [hashedPassword, id]
+        );
+        return result.affectedRows > 0;
+    }
+
+    static async incrementTokenVersion(id) {
+        const [result] = await pool.execute(
+            'UPDATE users SET token_version = COALESCE(token_version, 1) + 1 WHERE id = ?',
+            [id]
+        );
+        return result.affectedRows > 0;
     }
 
     static async getPublicProfile(id) {

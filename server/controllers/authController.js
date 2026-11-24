@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const generateToken = require('../utils/generateToken');
+const logger = require('../services/logger');
 
 // @desc    Register a new user
 // @route   POST /api/auth/register
@@ -36,7 +37,7 @@ const registerUser = async (req, res) => {
                 username,
                 email,
                 role: newUser?.role || 'USER',
-                token: generateToken(userId)
+                token: generateToken(userId, newUser?.token_version || 1)
             });
         } else {
             res.status(400).json({ message: 'Invalid user data' });
@@ -65,7 +66,7 @@ const loginUser = async (req, res) => {
                 email: user.email,
                 profile_image: user.profile_image,
                 role: user.role || 'USER',
-                token: generateToken(user.id)
+                token: generateToken(user.id, user.token_version || 1)
             });
         } else {
             res.status(401).json({ message: 'Invalid credentials' });
@@ -106,8 +107,9 @@ const googleAuth = async (req, res) => {
 
         const clientId = process.env.GOOGLE_CLIENT_ID;
         if (!clientId || clientId === 'YOUR_GOOGLE_CLIENT_ID' || clientId.includes('placeholder')) {
+            logger.warn('[Google Auth] Sign-In is not configured. Set GOOGLE_CLIENT_ID in server environment.');
             return res.status(503).json({ 
-                message: 'Google Sign-In is awaiting configuration. Please set GOOGLE_CLIENT_ID in server/.env.' 
+                message: 'Google Sign-In is temporarily unavailable. Please sign in with email and password or contact support.' 
             });
         }
 
@@ -118,7 +120,8 @@ const googleAuth = async (req, res) => {
 
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
-            return res.status(401).json({ message: 'Invalid or expired Google token', details: errData });
+            logger.warn('[Google Auth] ID token verification rejected by Google API', { status: response.status, details: errData });
+            return res.status(401).json({ message: 'Invalid or expired Google token' });
         }
 
         const payload = await response.json();
@@ -179,11 +182,24 @@ const googleAuth = async (req, res) => {
             email: user.email,
             profile_image: user.profile_image,
             role: user.role,
-            token: generateToken(user.id)
+            token: generateToken(user.id, user.token_version || 1)
         });
     } catch (error) {
-        console.error('Google Auth Error:', error);
-        res.status(500).json({ message: 'Google authentication failed', error: error.message });
+        logger.error('[Google Auth] Authentication failure:', { error: error.message, stack: error.stack });
+        res.status(500).json({ message: 'Google authentication service error. Please try again later.' });
+    }
+};
+
+// @desc    Logout user & revoke all active sessions by incrementing token_version
+// @route   POST /api/auth/logout
+// @access  Private
+const logoutUser = async (req, res) => {
+    try {
+        await User.incrementTokenVersion(req.user.id);
+        res.json({ message: 'Logged out successfully. All active sessions have been revoked.' });
+    } catch (error) {
+        logger.error('[Auth] Logout failure:', { error: error.message, userId: req.user?.id });
+        res.status(500).json({ message: 'Error logging out' });
     }
 };
 
@@ -191,5 +207,6 @@ module.exports = {
     registerUser,
     loginUser,
     getUserProfile,
-    googleAuth
+    googleAuth,
+    logoutUser
 };
