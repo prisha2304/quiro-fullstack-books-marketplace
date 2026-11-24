@@ -1,0 +1,65 @@
+# ---------------------------------------------------------------------------
+# QUIRO Production Docker Compose Override
+#
+# USAGE:
+#   docker-compose -f docker-compose.yml -f docker-compose.production.yml \
+#     --env-file .env.production up -d backend frontend
+#
+# This file enforces mandatory production variables using :? interpolation.
+# Docker Compose aborts with a clear error message if any required variable
+# is missing or empty. Never pass --profile local-db in production.
+#
+# Create .env.production from .env.production.example and populate it with
+# real credentials from your secrets vault / CI environment. Never commit it.
+# ---------------------------------------------------------------------------
+
+services:
+  backend:
+    # -------------------------------------------------------------------------
+    # Network Isolation:
+    # Do not publish port 5000 on host network in production.
+    # Expose port 5000 strictly within the internal Docker bridge network so only
+    # Nginx reverse proxy can reach Express. All external traffic enters via Nginx on port 80.
+    # -------------------------------------------------------------------------
+    ports: !override []
+    expose:
+      - "5000"
+    environment:
+      NODE_ENV: production
+      TRUST_PROXY: "1"
+
+      # -----------------------------------------------------------------------
+      # Database — TiDB Cloud connection required. No local MySQL fallback.
+      # -----------------------------------------------------------------------
+      DB_HOST: ${DB_HOST:?DB_HOST is required — set to TiDB Cloud gateway hostname}
+      DB_PORT: ${DB_PORT:-4000}
+      DB_USER: ${DB_USER:?DB_USER is required}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required — supply from secrets vault}
+      DB_NAME: ${DB_NAME:-quiro}
+      DB_SSL: "true"
+      DB_CA_PATH: ${DB_CA_PATH:-}
+
+      # -----------------------------------------------------------------------
+      # Security — high-entropy secrets required.
+      # -----------------------------------------------------------------------
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required — use a 256-bit+ random secret}
+      CLIENT_URL: ${CLIENT_URL:?CLIENT_URL is required — e.g. https://quiro.in}
+
+      # -----------------------------------------------------------------------
+      # Payment gateway — live Razorpay credentials required.
+      # Mandatory because without them createOrder returns un-capturable mock
+      # records. Payment capture in production already throws when unconfigured,
+      # but requiring credentials here prevents mock order rows from being
+      # created in the production database.
+      # -----------------------------------------------------------------------
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:?RAZORPAY_KEY_ID is required — use rzp_live_ key}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:?RAZORPAY_KEY_SECRET is required}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:?RAZORPAY_WEBHOOK_SECRET is required — must be distinct from KEY_SECRET}
+
+      # -----------------------------------------------------------------------
+      # Production logging
+      # -----------------------------------------------------------------------
+      LOG_LEVEL: ${LOG_LEVEL:-warn}
+
+    # Production backend connects directly to TiDB Cloud — no local MySQL.
+    depends_on: []
