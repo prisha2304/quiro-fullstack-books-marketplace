@@ -1,6 +1,8 @@
 const path = require('path');
+const fs = require('fs');
 const dotenv = require('dotenv');
-dotenv.config({ path: path.join(__dirname, '../../.env') });
+const testEnvPath = path.join(__dirname, '../../.env.test');
+dotenv.config({ path: fs.existsSync(testEnvPath) ? testEnvPath : path.join(__dirname, '../../.env') });
 const mysql = require('mysql2/promise');
 const { getDbConfig } = require('../../config/db');
 const crypto = require('crypto');

@@ -9,12 +9,13 @@
  */
 
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+const testEnvPath = path.join(__dirname, '../../.env.test');
+const fs = require('fs');
+require('dotenv').config({ path: fs.existsSync(testEnvPath) ? testEnvPath : path.join(__dirname, '../../.env') });
 const { pool } = require('../../config/db');
 const Book = require('../../models/Book');
 const Category = require('../../models/Category');
 const Swap = require('../../models/Swap');
-const fs = require('fs');
 
 async function runTests() {
     console.log('====================================================');
@@ -125,8 +126,14 @@ async function runTests() {
             const requesterId = availableBooks[1].seller_id;
             const ownerId = availableBooks[0].seller_id;
 
-            // Clean any existing test proposal between these two
-            await pool.execute('DELETE FROM swap_requests WHERE (requested_book_id = ? AND offered_book_id = ?) OR (requested_book_id = ? AND offered_book_id = ?)', [reqBookId, offBookId, offBookId, reqBookId]);
+            // Clean any existing test proposal between these two (child-first cleanup)
+            const [staleTestSwaps] = await pool.execute('SELECT id FROM swap_requests WHERE (requested_book_id = ? AND offered_book_id = ?) OR (requested_book_id = ? AND offered_book_id = ?)', [reqBookId, offBookId, offBookId, reqBookId]);
+            for (const sts of staleTestSwaps) {
+                await pool.execute('DELETE FROM swap_timeline WHERE swap_id = ?', [sts.id]);
+                await pool.execute('DELETE FROM swap_addresses WHERE swap_id = ?', [sts.id]);
+                await pool.execute('DELETE FROM swap_payments WHERE swap_id = ?', [sts.id]);
+                await pool.execute('DELETE FROM swap_requests WHERE id = ?', [sts.id]);
+            }
 
             // Create initial proposal
             const newSwapId = await Swap.create({

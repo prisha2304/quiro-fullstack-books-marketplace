@@ -14,12 +14,13 @@
  */
 
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+const testEnvPath = path.join(__dirname, '../../.env.test');
+const fs = require('fs');
+require('dotenv').config({ path: fs.existsSync(testEnvPath) ? testEnvPath : path.join(__dirname, '../../.env') });
 const { pool } = require('../../config/db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const fs = require('fs');
 
 const User = require('../../models/User');
 const Book = require('../../models/Book');

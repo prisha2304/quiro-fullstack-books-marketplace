@@ -90,11 +90,17 @@ async function runTests() {
         const bookA = userABooks[0];
         const bookB = userBBooks[0];
 
-        // Clean up any stale requests between these two specific books from prior runs
-        await conn.query(
-            'DELETE FROM swap_requests WHERE (requested_book_id = ? AND offered_book_id = ?) OR (requested_book_id = ? AND offered_book_id = ?)',
+        // Clean up any stale requests between these two specific books from prior runs (child-first cleanup)
+        const [staleSwaps] = await conn.query(
+            'SELECT id FROM swap_requests WHERE (requested_book_id = ? AND offered_book_id = ?) OR (requested_book_id = ? AND offered_book_id = ?)',
             [bookA.id, bookB.id, bookB.id, bookA.id]
         );
+        for (const s of staleSwaps) {
+            await conn.query('DELETE FROM swap_timeline WHERE swap_id = ?', [s.id]);
+            await conn.query('DELETE FROM swap_addresses WHERE swap_id = ?', [s.id]);
+            await conn.query('DELETE FROM swap_payments WHERE swap_id = ?', [s.id]);
+            await conn.query('DELETE FROM swap_requests WHERE id = ?', [s.id]);
+        }
 
         // 1. Discoverable Swap Books Query
         const discover = await Swap.getDiscoverable(userB.id, { limit: 10 });

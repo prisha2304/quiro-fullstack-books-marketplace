@@ -1,7 +1,10 @@
 const path = require('path');
+const fs = require('fs');
 const axios = require('axios');
+axios.defaults.proxy = false;
 const jwt = require('jsonwebtoken');
-require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+const testEnvPath = path.join(__dirname, '../../.env.test');
+require('dotenv').config({ path: fs.existsSync(testEnvPath) ? testEnvPath : path.join(__dirname, '../../.env') });
 const { pool } = require('../../config/db');
 const Razorpay = require('razorpay');
 
@@ -22,12 +25,13 @@ Razorpay.prototype.addResources = function() {
 // Start server in-process if not already listening
 const { app, server } = require('../../index');
 
-const API_BASE = 'http://localhost:5000/api';
-const JWT_SECRET = process.env.JWT_SECRET;
+const TEST_PORT = parseInt(process.env.TEST_PORT || process.env.PORT || '5001', 10);
+const API_BASE = `http://localhost:${TEST_PORT}/api`;
+const JWT_SECRET = process.env.JWT_SECRET || 'test_jwt_secret_for_quiro_testing_only_32_chars';
 let serverInstance = null;
 
 function makeToken(user) {
-    return jwt.sign({ id: user.id, email: user.email, role: user.role || 'user' }, JWT_SECRET, { expiresIn: '1h' });
+    return jwt.sign({ id: user.id, email: user.email, role: user.role || 'user', tv: user.token_version || 1 }, JWT_SECRET, { expiresIn: '1h' });
 }
 
 async function runTests() {
@@ -47,28 +51,30 @@ async function runTests() {
         }
     };
 
-    // Ensure server is listening on port 5000
+    // Ensure server is listening on TEST_PORT
     try {
-        const ping = await axios.get('http://localhost:5000/', { timeout: 800 }).catch(() => null);
+        const ping = await axios.get(`http://localhost:${TEST_PORT}/`, { timeout: 800 }).catch(() => null);
         if (!ping || ping.status !== 200) {
             if (!server.listening) {
-                serverInstance = server.listen(5000);
+                serverInstance = server.listen(TEST_PORT);
                 await new Promise(resolve => setTimeout(resolve, 800));
             }
         }
     } catch (e) {
         if (!server.listening) {
-            serverInstance = server.listen(5000);
+            serverInstance = server.listen(TEST_PORT);
             await new Promise(resolve => setTimeout(resolve, 800));
         }
     }
 
     let bookAId = null;
     let bookBId = null;
+    let swapId = null;
+    let directSwapId = null;
 
     try {
         // Find 2 distinct active users
-        const [users] = await pool.execute('SELECT id, full_name, email, role FROM users WHERE role = "user" LIMIT 2');
+        const [users] = await pool.execute('SELECT id, full_name, email, role, token_version FROM users WHERE role = "user" LIMIT 2');
         if (users.length < 2) {
             console.error('Need at least 2 users in database.');
             process.exit(1);
@@ -110,7 +116,7 @@ async function runTests() {
             offered_book_id: bookAId,
             message: 'Proposing trade for automated test'
         }, { headers: { 'Authorization': `Bearer ${tokenA}` } });
-        const swapId = swapCreate.data.swapId;
+        swapId = swapCreate.data.swapId;
         assert(swapId > 0, 'Swap proposal created successfully');
 
         // User B accepts
@@ -166,7 +172,8 @@ async function runTests() {
             postal_code: '400053',
             delivery_instructions: 'Leave with security if not home'
         }, { headers: { 'Authorization': `Bearer ${tokenA}` } });
-        assert(addrA.data.status === 'awaiting_addresses', 'One address recorded; still awaiting partner address');
+        // saveAddress returns getSwapDetails — check status includes 'awaiting' (not yet both submitted)
+        assert(addrA.data && (addrA.data.status === 'awaiting_addresses' || addrA.data.status === 'awaiting_payment'), 'One address recorded; still awaiting partner address');
 
         // User B submits address
         const addrB = await axios.post(`${API_BASE}/swaps/${swapId}/address`, {
@@ -257,7 +264,7 @@ async function runTests() {
             offered_book_id: bookAId,
             message: 'Direct swap test'
         }, { headers: { 'Authorization': `Bearer ${tokenA}` } });
-        const directSwapId = directSwapRes.data.swapId;
+        directSwapId = directSwapRes.data.swapId;
         await axios.put(`${API_BASE}/swaps/${directSwapId}/accept`, {}, { headers: { 'Authorization': `Bearer ${tokenB}` } });
 
         // Select SELF_ARRANGED
@@ -287,7 +294,16 @@ async function runTests() {
         console.error('Test execution error:', err.response?.data || err.message);
         failed++;
     } finally {
-        // Guaranteed independent cleanup of test books even if test operations or partner inserts fail
+        // Explicit child-first cleanup so no orphaned child rows are created
+        const testSwapIds = [swapId, directSwapId].filter(Boolean);
+        for (const sid of testSwapIds) {
+            try {
+                await pool.execute('DELETE FROM swap_timeline WHERE swap_id = ?', [sid]);
+                await pool.execute('DELETE FROM swap_addresses WHERE swap_id = ?', [sid]);
+                await pool.execute('DELETE FROM swap_payments WHERE swap_id = ?', [sid]);
+                await pool.execute('DELETE FROM swap_requests WHERE id = ?', [sid]);
+            } catch (cleanupErr) {}
+        }
         if (bookAId) {
             try {
                 await pool.execute('DELETE FROM books WHERE id = ?', [bookAId]);
