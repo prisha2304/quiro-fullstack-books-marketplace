@@ -598,6 +598,9 @@ class MarketplaceIntelligenceService {
                 WHERE sla_status = 'AT_RISK'
             `);
             summary = { atRiskOrdersCount: Number(atRisk[0]?.risk_count || 0) };
+        } else if (jobKey === 'RECONCILE_SWAP_REFUNDS') {
+            const SwapModel = require('../models/Swap');
+            summary = await SwapModel.reconcileAllPendingSwapRefunds();
         } else {
             throw new Error(`Unsupported automation job key: ${jobKey}`);
         }

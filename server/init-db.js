@@ -1,6 +1,7 @@
 const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
+const { getSslConfig } = require('./config/db');
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
@@ -15,12 +16,14 @@ const initDB = async () => {
     }
 
     const dbName = process.env.DB_NAME || 'quiro';
+    const ssl = getSslConfig(host);
 
     const connection = await mysql.createConnection({
         host,
         port,
         user: process.env.DB_USER || 'root',
         password: process.env.DB_PASSWORD || '',
+        ssl,
         multipleStatements: true
     });
 

@@ -40,6 +40,18 @@ class JobEngineService {
             description: 'Identifies unfulfilled seller orders approaching packing/ship deadline',
             handler: async () => marketplaceIntelligenceService.runAutomationJob('SCAN_SLA_BREACH_RISKS')
         });
+
+        // Step 8D: Automatic swap refund reconciliation
+        // Loaded lazily to avoid circular dependency (Swap → pool → jobEngineService is not circular,
+        // but jobEngineService → Swap must be deferred until Swap module is fully loaded)
+        this.registeredJobs.set('RECONCILE_SWAP_REFUNDS', {
+            name: 'Swap Refund Reconciliation Monitor',
+            description: 'Sweeps REFUND_PENDING swap payments and reconciles via authoritative Razorpay status',
+            handler: async () => {
+                const SwapModel = require('../models/Swap');
+                return SwapModel.reconcileAllPendingSwapRefunds();
+            }
+        });
     }
 
     getRegisteredJobs() {

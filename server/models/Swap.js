@@ -780,65 +780,113 @@ class Swap {
     // Option B: Shipping Fee Payment (Razorpay Test Mode / Live)
     // -------------------------------------------------------------
     static async createManagedPayment(swapId, userId) {
-        const swap = await this.findById(swapId);
-        if (!swap) throw new Error('Swap request not found');
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
 
-        const isRequester = parseInt(swap.requester_id, 10) === parseInt(userId, 10);
-        const isOwner = parseInt(swap.owner_id, 10) === parseInt(userId, 10);
-        if (!isRequester && !isOwner) {
-            throw new Error('Only participants can pay the exchange courier fee.');
-        }
+            const [swapRows] = await connection.execute('SELECT * FROM swap_requests WHERE id = ? FOR UPDATE', [swapId]);
+            const swap = swapRows[0];
+            if (!swap) throw new Error('Swap request not found');
 
-        if (swap.exchange_method !== 'QUIRO_MANAGED' || swap.method_agreed !== 1) {
-            throw new Error('Both readers must select and agree to QUIRO Managed Exchange before payment can begin.');
-        }
+            const isRequester = parseInt(swap.requester_id, 10) === parseInt(userId, 10);
+            const isOwner = parseInt(swap.owner_id, 10) === parseInt(userId, 10);
+            if (!isRequester && !isOwner) {
+                throw new Error('Only participants can pay the exchange courier fee.');
+            }
 
-        const [addrRows] = await pool.execute(
-            'SELECT COUNT(DISTINCT user_id) as count FROM swap_addresses WHERE swap_id = ? AND confirmed_at IS NOT NULL',
-            [swapId]
-        );
-        if ((addrRows[0]?.count || 0) < 2) {
-            throw new Error('Both readers must submit and confirm their pickup and delivery addresses before payment.');
-        }
+            if (swap.exchange_method !== 'QUIRO_MANAGED' || swap.method_agreed !== 1) {
+                throw new Error('Both readers must select and agree to QUIRO Managed Exchange before payment can begin.');
+            }
 
-        const role = isRequester ? 'requester' : 'owner';
-        const alreadyPaid = isRequester ? swap.requester_paid : swap.owner_paid;
-        if (alreadyPaid) {
-            throw new Error('You have already paid your courier shipping fee for this swap.');
-        }
+            const [addrRows] = await connection.execute(
+                'SELECT COUNT(DISTINCT user_id) as count FROM swap_addresses WHERE swap_id = ? AND confirmed_at IS NOT NULL',
+                [swapId]
+            );
+            if ((addrRows[0]?.count || 0) < 2) {
+                throw new Error('Both readers must submit and confirm their pickup and delivery addresses before payment.');
+            }
 
-        const feeAmount = parseFloat(process.env.SWAP_SHIPPING_FEE || swap.shipping_fee_per_user || '79.00');
-        const amountInPaise = Math.round(feeAmount * 100);
+            const role = isRequester ? 'requester' : 'owner';
+            const alreadyPaid = isRequester ? swap.requester_paid : swap.owner_paid;
+            if (alreadyPaid) {
+                throw new Error('You have already paid your courier shipping fee for this swap.');
+            }
 
-        const rzp = getRazorpayClient();
-        let rzpOrderId;
-        const isTestMode = !rzp;
+            const feeAmount = parseFloat(process.env.SWAP_SHIPPING_FEE || swap.shipping_fee_per_user || '79.00');
+            const amountInPaise = Math.round(feeAmount * 100);
 
-        if (rzp) {
-            const rzpOrder = await rzp.orders.create({
+            // Check for existing valid pending Razorpay order for this swap and user (Idempotency)
+            const [existingPendingRows] = await connection.execute(
+                'SELECT * FROM swap_payments WHERE swap_id = ? AND user_id = ? AND status = "PENDING" ORDER BY id DESC FOR UPDATE',
+                [swapId, userId]
+            );
+
+            const rzp = getRazorpayClient();
+            const isTestMode = !rzp;
+            const ORDER_VALIDITY_MS = 24 * 60 * 60 * 1000; // Razorpay orders remain valid for 24 hours
+
+            if (existingPendingRows.length > 0) {
+                const pendingOrder = existingPendingRows[0];
+                const orderAgeMs = Date.now() - new Date(pendingOrder.created_at).getTime();
+                const isAmountMatch = Math.abs(parseFloat(pendingOrder.amount) - feeAmount) < 0.01;
+
+                // Reuse if order is within validity window and amount matches
+                if (orderAgeMs < ORDER_VALIDITY_MS && isAmountMatch && pendingOrder.razorpay_order_id) {
+                    await connection.commit();
+                    return {
+                        keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_booknest_sandbox',
+                        rzpOrderId: pendingOrder.razorpay_order_id,
+                        amount: Math.round(parseFloat(pendingOrder.amount) * 100),
+                        fee: parseFloat(pendingOrder.amount),
+                        currency: 'INR',
+                        isTestMode,
+                        swapId
+                    };
+                }
+
+                // If expired or invalid, mark prior pending rows as EXPIRED
+                for (const oldRow of existingPendingRows) {
+                    await connection.execute(
+                        'UPDATE swap_payments SET status = "EXPIRED", updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                        [oldRow.id]
+                    );
+                }
+            }
+
+            let rzpOrderId;
+            if (rzp) {
+                const rzpOrder = await rzp.orders.create({
+                    amount: amountInPaise,
+                    currency: 'INR',
+                    receipt: `swap_${swapId}_${userId}_${Date.now().toString().slice(-4)}`
+                });
+                rzpOrderId = rzpOrder.id;
+            } else {
+                rzpOrderId = `order_swap_${swapId}_${Date.now()}`;
+            }
+
+            await connection.execute(`
+                INSERT INTO swap_payments (swap_id, user_id, role, razorpay_order_id, amount, status)
+                VALUES (?, ?, ?, ?, ?, 'PENDING')
+            `, [swapId, userId, role, rzpOrderId, feeAmount]);
+
+            await connection.commit();
+
+            return {
+                keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_booknest_sandbox',
+                rzpOrderId,
                 amount: amountInPaise,
+                fee: feeAmount,
                 currency: 'INR',
-                receipt: `swap_${swapId}_${userId}_${Date.now().toString().slice(-4)}`
-            });
-            rzpOrderId = rzpOrder.id;
-        } else {
-            rzpOrderId = `order_swap_${swapId}_${Date.now()}`;
+                isTestMode,
+                swapId
+            };
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
         }
-
-        await pool.execute(`
-            INSERT INTO swap_payments (swap_id, user_id, role, razorpay_order_id, amount, status)
-            VALUES (?, ?, ?, ?, ?, 'PENDING')
-        `, [swapId, userId, role, rzpOrderId, feeAmount]);
-
-        return {
-            keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_booknest_sandbox',
-            rzpOrderId,
-            amount: amountInPaise,
-            fee: feeAmount,
-            currency: 'INR',
-            isTestMode,
-            swapId
-        };
     }
 
     static async verifyManagedPayment(swapId, userId, paymentData) {
@@ -859,6 +907,32 @@ class Swap {
             const isOwner = parseInt(swap.owner_id, 10) === parseInt(userId, 10);
             if (!isRequester && !isOwner) {
                 throw new Error('User not part of this swap.');
+            }
+
+            // Lock and inspect the specific payment record for this exact swap_id, user_id, and razorpay_order_id
+            const [paymentRows] = await connection.execute(
+                'SELECT * FROM swap_payments WHERE swap_id = ? AND user_id = ? AND razorpay_order_id = ? FOR UPDATE',
+                [swapId, userId, razorpay_order_id]
+            );
+
+            if (paymentRows.length === 0) {
+                throw new Error(`No payment order found matching order ID: ${razorpay_order_id} for this swap.`);
+            }
+
+            const paymentRecord = paymentRows[0];
+
+            // Idempotency: If this exact payment order has already been captured
+            if (paymentRecord.status === 'CAPTURED') {
+                if (paymentRecord.razorpay_payment_id === razorpay_payment_id) {
+                    // Safe repeated callback - commit and return current details without duplicate timeline events
+                    await connection.commit();
+                    return await this.getSwapDetails(swapId, userId);
+                }
+                throw new Error('Payment for this order has already been captured with a different transaction ID.');
+            }
+
+            if (paymentRecord.status !== 'PENDING') {
+                throw new Error(`Payment order is not in PENDING state (current status: ${paymentRecord.status}).`);
             }
 
             // Verify Signature with timing-safe HMAC SHA-256
@@ -898,15 +972,15 @@ class Swap {
                 throw new Error('Missing Razorpay credentials: Payment verification failed safely.');
             }
 
-            // Update swap_payments
+            // Strict update by specific payment record ID only (removed "OR status = 'PENDING'")
             await connection.execute(`
                 UPDATE swap_payments 
                 SET status = 'CAPTURED', 
                     razorpay_payment_id = ?, 
                     razorpay_signature = ?, 
                     updated_at = CURRENT_TIMESTAMP
-                WHERE swap_id = ? AND user_id = ? AND (razorpay_order_id = ? OR status = 'PENDING')
-            `, [razorpay_payment_id, razorpay_signature || null, swapId, userId, razorpay_order_id]);
+                WHERE id = ?
+            `, [razorpay_payment_id, razorpay_signature || null, paymentRecord.id]);
 
             let requesterPaid = isRequester ? 1 : swap.requester_paid;
             let ownerPaid = isOwner ? 1 : swap.owner_paid;
@@ -918,39 +992,55 @@ class Swap {
 
             const feeCharged = parseFloat(process.env.SWAP_SHIPPING_FEE || swap.shipping_fee_per_user || '79.00');
             const userRoleName = isRequester ? 'Requester' : 'Owner';
-            await connection.execute(
-                'INSERT INTO swap_timeline (swap_id, status, message, actor_id) VALUES (?, ?, ?, ?)',
-                [swapId, swap.status, `${userRoleName} completed shipping fee payment of ₹${feeCharged.toFixed(2)}.`, userId]
+
+            // Insert timeline event only if one does not already exist for this user's payment (Timeline Idempotency)
+            const [existingTimeline] = await connection.execute(
+                'SELECT id FROM swap_timeline WHERE swap_id = ? AND actor_id = ? AND message LIKE ?',
+                [swapId, userId, `%completed shipping fee payment%`]
             );
+            if (existingTimeline.length === 0) {
+                await connection.execute(
+                    'INSERT INTO swap_timeline (swap_id, status, message, actor_id) VALUES (?, ?, ?, ?)',
+                    [swapId, swap.status, `${userRoleName} completed shipping fee payment of ₹${feeCharged.toFixed(2)}.`, userId]
+                );
+            }
 
             // Check if BOTH participants have paid
             if (requesterPaid === 1 && ownerPaid === 1) {
-                nextStatus = 'payment_completed';
-                courierStatus = 'payment_confirmed';
-                courierTracking = `QRO-${Date.now().toString().slice(-8)}`;
-                
-                const now = new Date();
-                collectionDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // Tomorrow
-                deliveryDate = new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000); // 4 days later
+                if (swap.status !== 'payment_completed' && swap.courier_status !== 'payment_confirmed' && swap.courier_status !== 'pickup_scheduled') {
+                    nextStatus = 'payment_completed';
+                    courierStatus = 'payment_confirmed';
+                    courierTracking = swap.courier_tracking || `QRO-${Date.now().toString().slice(-8)}`;
+                    
+                    const now = new Date();
+                    collectionDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // Tomorrow
+                    deliveryDate = new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000); // 4 days later
 
-                await connection.execute(
-                    'INSERT INTO swap_timeline (swap_id, status, message, actor_id) VALUES (?, "payment_completed", "Both readers have paid shipping fees! Payment Confirmed. QUIRO Express Courier dispatch initialized.", ?)',
-                    [swapId, userId]
-                );
+                    const [existingBothPaidTimeline] = await connection.execute(
+                        'SELECT id FROM swap_timeline WHERE swap_id = ? AND status = "payment_completed"',
+                        [swapId]
+                    );
+                    if (existingBothPaidTimeline.length === 0) {
+                        await connection.execute(
+                            'INSERT INTO swap_timeline (swap_id, status, message, actor_id) VALUES (?, "payment_completed", "Both readers have paid shipping fees! Payment Confirmed. QUIRO Express Courier dispatch initialized.", ?)',
+                            [swapId, userId]
+                        );
+                    }
 
-                await Notification.create({
-                    user_id: swap.requester_id,
-                    title: 'Exchange Payment Confirmed!',
-                    message: `Both shipping payments received! Reference: ${courierTracking}. Courier pickup has been scheduled.`,
-                    type: 'swap_payment_complete'
-                });
+                    await Notification.create({
+                        user_id: swap.requester_id,
+                        title: 'Exchange Payment Confirmed!',
+                        message: `Both shipping payments received! Reference: ${courierTracking}. Courier pickup has been scheduled.`,
+                        type: 'swap_payment_complete'
+                    });
 
-                await Notification.create({
-                    user_id: swap.owner_id,
-                    title: 'Exchange Payment Confirmed!',
-                    message: `Both shipping payments received! Reference: ${courierTracking}. Courier pickup has been scheduled.`,
-                    type: 'swap_payment_complete'
-                });
+                    await Notification.create({
+                        user_id: swap.owner_id,
+                        title: 'Exchange Payment Confirmed!',
+                        message: `Both shipping payments received! Reference: ${courierTracking}. Courier pickup has been scheduled.`,
+                        type: 'swap_payment_complete'
+                    });
+                }
             }
 
             await connection.execute(`
@@ -1052,71 +1142,825 @@ class Swap {
     }
 
     // -------------------------------------------------------------
+    // Step 8D — Shared Refund Finalization (Webhook + Worker path)
+    // -------------------------------------------------------------
+    /**
+     * finalizeSwapPaymentRefund
+     * --------------------------
+     * Transaction-safe, shared finalization used by BOTH the Razorpay webhook
+     * handler and the scheduled reconciliation worker.
+     *
+     * @param {object} conn       - Active DB connection (must already be inside beginTransaction)
+     * @param {object} context
+     *   swapId            {number}  - Internal swap ID
+     *   razorpayPaymentId {string}  - Razorpay payment ID (pay_xxx)
+     *   razorpayRefundId  {string}  - Razorpay refund ID (rfnd_xxx)
+     *   refundAmountRupees {number|null} - Refund amount in RUPEES; null = hard skip
+     *   currency          {string}  - Currency code (default 'INR')
+     *   incomingStatus    {string}  - 'processed' | 'created' | 'pending' | 'failed'
+     *   actorLabel        {string}  - 'WEBHOOK' | 'SCHEDULER' (for timeline messages)
+     *   claimedStatus     {string|undefined} - If set, row must still carry this status
+     *                                          (worker fencing).  Absent = webhook path
+     *                                          (overrides REFUND_PENDING without a token).
+     *
+     * @returns {{ claimLost: boolean, skipped: boolean, processed: number, pending: number, failed: number }}
+     */
+    static async finalizeSwapPaymentRefund(conn, context) {
+        const {
+            swapId,
+            razorpayPaymentId,
+            razorpayRefundId,
+            refundAmountRupees,
+            currency = 'INR',
+            incomingStatus,
+            actorLabel = 'SYSTEM',
+            claimedStatus
+        } = context;
+
+        // Hard-skip on missing or non-positive amount
+        if (refundAmountRupees === null || refundAmountRupees === undefined || isNaN(refundAmountRupees) || refundAmountRupees <= 0) {
+            console.warn('[finalizeSwapPaymentRefund] Skipped: missing or invalid refund amount', { swapId, razorpayPaymentId, refundAmountRupees });
+            return { skipped: true, reason: 'MISSING_AMOUNT', claimLost: false, processed: 0, pending: 0, failed: 0 };
+        }
+
+        // Determine target DB status from Razorpay gateway status
+        let targetDbStatus;
+        if (incomingStatus === 'processed') {
+            targetDbStatus = 'REFUNDED';
+        } else if (incomingStatus === 'created' || incomingStatus === 'pending') {
+            targetDbStatus = 'REFUND_PENDING';
+        } else if (incomingStatus === 'failed') {
+            targetDbStatus = 'REFUND_FAILED';
+        } else {
+            console.warn('[finalizeSwapPaymentRefund] Unknown incomingStatus; skipping', { swapId, incomingStatus });
+            return { skipped: true, reason: 'UNKNOWN_STATUS', claimLost: false, processed: 0, pending: 0, failed: 0 };
+        }
+
+        // Lock all matching rows for this swap+payment
+        const [rows] = await conn.execute(
+            'SELECT * FROM swap_payments WHERE swap_id = ? AND razorpay_payment_id = ? FOR UPDATE',
+            [swapId, razorpayPaymentId]
+        );
+
+        let processedCount = 0;
+        let pendingCount = 0;
+        let failedCount = 0;
+
+        for (const pay of rows) {
+            const currentStatus = pay.status;
+
+            // Terminal guard: never downgrade a confirmed REFUNDED row
+            if (currentStatus === 'REFUNDED' && incomingStatus !== 'processed') {
+                console.log('[finalizeSwapPaymentRefund] Row already REFUNDED; skipping downgrade', { payId: pay.id, incomingStatus });
+                processedCount++; // Count as processed for the "all-refunded" check below
+                continue;
+            }
+            if (currentStatus === 'REFUNDED' && incomingStatus === 'processed') {
+                processedCount++;
+                continue; // Already done — idempotent
+            }
+
+            // Amount tolerance check (±₹0.01)
+            const dbAmountRupees = parseFloat(pay.amount);
+            if (Math.abs(refundAmountRupees - dbAmountRupees) > 0.01) {
+                console.warn('[finalizeSwapPaymentRefund] Amount mismatch; skipping row', {
+                    payId: pay.id,
+                    expected: dbAmountRupees,
+                    received: refundAmountRupees
+                });
+                return { skipped: true, reason: 'AMOUNT_MISMATCH', claimLost: false, processed: processedCount, pending: pendingCount, failed: failedCount };
+            }
+
+            // Build WHERE clause based on path (worker fencing vs. webhook)
+            let updateSql, updateParams;
+            if (claimedStatus) {
+                // Worker path: row MUST still carry our claimed token
+                updateSql = `UPDATE swap_payments SET status = ?, refund_id = ?, refund_amount = amount, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = ?`;
+                updateParams = [targetDbStatus, razorpayRefundId, pay.id, claimedStatus];
+            } else {
+                // Webhook path: allow override of REFUND_PENDING but never overwrite REFUNDED
+                updateSql = `UPDATE swap_payments SET status = ?, refund_id = ?, refund_amount = amount, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status NOT IN ('REFUNDED')`;
+                updateParams = [targetDbStatus, razorpayRefundId, pay.id];
+            }
+
+            const [updateRes] = await conn.execute(updateSql, updateParams);
+
+            if (updateRes.affectedRows === 0) {
+                if (claimedStatus) {
+                    // Fencing failure — another worker reclaimed this row
+                    console.warn('[finalizeSwapPaymentRefund] Claim lost for row', { payId: pay.id, claimedStatus });
+                    return { claimLost: true, processed: processedCount, pending: pendingCount, failed: failedCount, skipped: false };
+                }
+                // Webhook path: row was REFUNDED by concurrent worker — count it
+                processedCount++;
+                continue;
+            }
+
+            // Record timeline event (idempotent — check refund ID before inserting)
+            const timelineStatus = targetDbStatus === 'REFUNDED' ? 'refunded'
+                : targetDbStatus === 'REFUND_PENDING' ? 'refund_pending'
+                : 'refund_failed';
+
+            const [existingTimeline] = await conn.execute(
+                'SELECT id FROM swap_timeline WHERE swap_id = ? AND message LIKE ?',
+                [swapId, `%Ref: ${razorpayRefundId}%`]
+            );
+            if (existingTimeline.length === 0) {
+                let tlMsg;
+                if (targetDbStatus === 'REFUNDED') {
+                    tlMsg = `Shipping fee of ₹${pay.amount} refunded to ${pay.role} (Ref: ${razorpayRefundId}) [${actorLabel}].`;
+                } else if (targetDbStatus === 'REFUND_PENDING') {
+                    tlMsg = `Refund of ₹${pay.amount} for ${pay.role} pending bank settlement (Ref: ${razorpayRefundId}) [${actorLabel}].`;
+                } else {
+                    tlMsg = `Refund of ₹${pay.amount} for ${pay.role} failed at gateway (Ref: ${razorpayRefundId}) [${actorLabel}].`;
+                }
+                await conn.execute(
+                    'INSERT INTO swap_timeline (swap_id, status, message, actor_id) VALUES (?, ?, ?, NULL)',
+                    [swapId, timelineStatus, tlMsg]
+                );
+            }
+
+            if (targetDbStatus === 'REFUNDED') processedCount++;
+            else if (targetDbStatus === 'REFUND_PENDING') pendingCount++;
+            else failedCount++;
+        }
+
+        // Check if ALL payments for this swap are now REFUNDED → release books
+        if (targetDbStatus === 'REFUNDED') {
+            const [allPays] = await conn.execute(
+                'SELECT id, status FROM swap_payments WHERE swap_id = ?',
+                [swapId]
+            );
+            const allRefunded = allPays.length > 0 && allPays.every(p => p.status === 'REFUNDED');
+
+            if (allRefunded) {
+                const [swapRows] = await conn.execute('SELECT * FROM swap_requests WHERE id = ? FOR UPDATE', [swapId]);
+                const swap = swapRows[0];
+                if (swap && swap.status !== 'cancelled') {
+                    await conn.execute(
+                        "UPDATE books SET status = 'available' WHERE id IN (?, ?) AND status = 'reserved'",
+                        [swap.requested_book_id, swap.offered_book_id]
+                    );
+                    await conn.execute(
+                        `UPDATE swap_requests SET status = 'cancelled', requester_paid = 0, owner_paid = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                        [swapId]
+                    );
+                    console.log('[finalizeSwapPaymentRefund] All payments REFUNDED — swap cancelled and books released', { swapId });
+                }
+            }
+        }
+
+        return { claimLost: false, skipped: false, processed: processedCount, pending: pendingCount, failed: failedCount };
+    }
+
+    // -------------------------------------------------------------
+    // Step 8D — Scheduled Swap Refund Reconciliation Worker
+    // -------------------------------------------------------------
+    /**
+     * reconcileAllPendingSwapRefunds
+     * --------------------------------
+     * Scheduled sweep that picks up REFUND_PENDING and stale
+     * REFUND_PROCESSING swap payments and reconciles them against
+     * the authoritative Razorpay gateway status.
+     *
+     * Design:
+     *   Phase R1 — Short, locking DB transaction: claim eligible rows
+     *              for each swap under ONE shared claimToken.
+     *   Phase R2 — No DB locks: query Razorpay for each distinct payment ID.
+     *   Phase R3 — Short, locking DB transaction: call finalizeSwapPaymentRefund
+     *              with the claim token for fencing.
+     *
+     * @returns {{ swapsProcessed, swapsSkipped, swapsErrored, details[] }}
+     */
+    static async reconcileAllPendingSwapRefunds() {
+        const STALE_THRESHOLD_MS = 65 * 1000; // 65s — 5s buffer over processSwapRefund's 60s lock
+        const BATCH_SIZE = 50;
+        const rzp = getRazorpayClient();
+
+        // Find swaps that have payments needing reconciliation
+        const [candidateRows] = await pool.execute(`
+            SELECT DISTINCT swap_id FROM swap_payments
+            WHERE status = 'REFUND_PENDING'
+               OR (status LIKE 'REFUND_PROCESSING%' AND updated_at < NOW() - INTERVAL 65 SECOND)
+            LIMIT 50
+        `);
+
+        const swapIds = candidateRows.map(r => r.swap_id);
+        console.log(`[reconcileAllPendingSwapRefunds] Found ${swapIds.length} swap(s) to reconcile`);
+
+        const results = [];
+
+        for (const swapId of swapIds) {
+            let newToken;
+            let claimedStatus;
+            let eligibleRows = [];
+
+            // ---- Phase R1: Atomically claim all eligible rows for this swap ----
+            const r1Conn = await pool.getConnection();
+            try {
+                await r1Conn.beginTransaction();
+
+                const [allRows] = await r1Conn.execute(
+                    'SELECT * FROM swap_payments WHERE swap_id = ? FOR UPDATE',
+                    [swapId]
+                );
+
+                const now = Date.now();
+                eligibleRows = allRows.filter(p => {
+                    if (p.status === 'REFUND_PENDING') return true;
+                    if (p.status && p.status.startsWith('REFUND_PROCESSING')) {
+                        const updatedAt = p.updated_at ? new Date(p.updated_at).getTime() : 0;
+                        return (now - updatedAt) >= STALE_THRESHOLD_MS;
+                    }
+                    return false;
+                });
+
+                if (eligibleRows.length === 0) {
+                    await r1Conn.commit();
+                    results.push({ swapId, status: 'SKIPPED', reason: 'No eligible rows after re-check' });
+                    continue;
+                }
+
+                // One shared token for ALL rows in this swap (mirrors processSwapRefund Phase 1)
+                newToken = crypto.randomBytes(8).toString('hex');
+                claimedStatus = `REFUND_PROCESSING:${newToken}`;
+
+                const eligibleIds = eligibleRows.map(p => p.id);
+                const eligibleOldStatuses = [...new Set(eligibleRows.map(p => p.status))];
+                const idPlaceholders = eligibleIds.map(() => '?').join(',');
+                const statusPlaceholders = eligibleOldStatuses.map(() => '?').join(',');
+
+                const [claimRes] = await r1Conn.execute(
+                    `UPDATE swap_payments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN (${idPlaceholders}) AND status IN (${statusPlaceholders})`,
+                    [claimedStatus, ...eligibleIds, ...eligibleOldStatuses]
+                );
+
+                if (claimRes.affectedRows === 0) {
+                    // Another worker already claimed — skip gracefully
+                    await r1Conn.commit();
+                    results.push({ swapId, status: 'SKIPPED', reason: 'Claim lost during R1 — concurrent worker' });
+                    continue;
+                }
+
+                await r1Conn.commit();
+            } catch (r1Err) {
+                await r1Conn.rollback();
+                console.error(`[reconcileAllPendingSwapRefunds] R1 error for swap ${swapId}`, { error: r1Err.message });
+                results.push({ swapId, status: 'ERROR', phase: 'R1', error: r1Err.message });
+                continue;
+            } finally {
+                r1Conn.release();
+            }
+
+            // ---- Phase R2: Query Razorpay (no DB locks held) ----
+            // Deduplicate by razorpay_payment_id
+            const paymentResultMap = new Map(); // razorpay_payment_id → reconcileRazorpayRefund result
+
+            for (const pay of eligibleRows) {
+                if (!pay.razorpay_payment_id) continue;
+                if (paymentResultMap.has(pay.razorpay_payment_id)) continue;
+
+                // Skip sandbox/test payment IDs — treat as PROCESSED for test environments
+                if (pay.razorpay_payment_id.startsWith('pay_sandbox_') || pay.razorpay_payment_id.startsWith('pay_test_') || pay.razorpay_payment_id.startsWith('pay_mock_')) {
+                    paymentResultMap.set(pay.razorpay_payment_id, {
+                        state: 'PROCESSED',
+                        refundId: pay.refund_id || `rfnd_mock_reconciled_${pay.id}`,
+                        status: 'processed',
+                        amount: parseFloat(pay.amount)
+                    });
+                    continue;
+                }
+
+                if (!rzp) {
+                    console.warn('[reconcileAllPendingSwapRefunds] Razorpay client unavailable; skipping gateway query', { paymentId: pay.razorpay_payment_id });
+                    paymentResultMap.set(pay.razorpay_payment_id, null);
+                    continue;
+                }
+
+                const gatewayResult = await Swap.reconcileRazorpayRefund(pay.razorpay_payment_id, rzp);
+                paymentResultMap.set(pay.razorpay_payment_id, gatewayResult);
+            }
+
+            // ---- Phase R3: Finalize in a short transaction using claimedStatus fencing ----
+            const r3Conn = await pool.getConnection();
+            try {
+                await r3Conn.beginTransaction();
+
+                // Group eligible rows by razorpay_payment_id
+                const paymentGroups = new Map();
+                for (const pay of eligibleRows) {
+                    const key = pay.razorpay_payment_id || `no_rzp_${pay.id}`;
+                    if (!paymentGroups.has(key)) paymentGroups.set(key, []);
+                    paymentGroups.get(key).push(pay);
+                }
+
+                let swapProcessed = 0, swapPending = 0, swapFailed = 0;
+                let claimLostInR3 = false;
+
+                for (const [rzpPaymentId, groupRows] of paymentGroups) {
+                    if (claimLostInR3) break;
+                    const gatewayResult = paymentResultMap.get(rzpPaymentId);
+
+                    if (!gatewayResult) {
+                        // No gateway result — release claim back to REFUND_PENDING so it retries next cycle
+                        const groupIds = groupRows.map(r => r.id);
+                        const ph = groupIds.map(() => '?').join(',');
+                        await r3Conn.execute(
+                            `UPDATE swap_payments SET status = 'REFUND_PENDING', updated_at = CURRENT_TIMESTAMP WHERE id IN (${ph}) AND status = ?`,
+                            [...groupIds, claimedStatus]
+                        );
+                        swapPending += groupRows.length;
+                        continue;
+                    }
+
+                    const incomingStatus = gatewayResult.status; // 'processed' | 'created' | 'pending' | 'failed'
+                    const refundAmountRupees = gatewayResult.amount; // already rupees from reconcileRazorpayRefund
+
+                    const finalizeResult = await Swap.finalizeSwapPaymentRefund(r3Conn, {
+                        swapId,
+                        razorpayPaymentId: rzpPaymentId,
+                        razorpayRefundId: gatewayResult.refundId,
+                        refundAmountRupees,
+                        incomingStatus,
+                        actorLabel: 'SCHEDULER',
+                        claimedStatus
+                    });
+
+                    if (finalizeResult.claimLost) {
+                        claimLostInR3 = true;
+                        break;
+                    }
+
+                    if (finalizeResult.skipped) {
+                        // Amount mismatch or unknown status — revert claim to REFUND_PENDING
+                        const groupIds = groupRows.map(r => r.id);
+                        const ph = groupIds.map(() => '?').join(',');
+                        await r3Conn.execute(
+                            `UPDATE swap_payments SET status = 'REFUND_PENDING', updated_at = CURRENT_TIMESTAMP WHERE id IN (${ph}) AND status = ?`,
+                            [...groupIds, claimedStatus]
+                        );
+                        swapPending += groupRows.length;
+                        continue;
+                    }
+
+                    swapProcessed += finalizeResult.processed;
+                    swapPending += finalizeResult.pending;
+                    swapFailed += finalizeResult.failed;
+                }
+
+                if (claimLostInR3) {
+                    await r3Conn.rollback();
+                    results.push({ swapId, status: 'SKIPPED', reason: 'Claim lost during R3 — concurrent worker' });
+                } else {
+                    await r3Conn.commit();
+                    results.push({ swapId, status: 'OK', processed: swapProcessed, pending: swapPending, failed: swapFailed });
+                }
+            } catch (r3Err) {
+                await r3Conn.rollback();
+                console.error(`[reconcileAllPendingSwapRefunds] R3 error for swap ${swapId}`, { error: r3Err.message });
+                results.push({ swapId, status: 'ERROR', phase: 'R3', error: r3Err.message });
+            } finally {
+                r3Conn.release();
+            }
+        }
+
+        const summary = {
+            swapsProcessed: results.filter(r => r.status === 'OK').length,
+            swapsSkipped: results.filter(r => r.status === 'SKIPPED').length,
+            swapsErrored: results.filter(r => r.status === 'ERROR').length,
+            details: results
+        };
+        console.log('[reconcileAllPendingSwapRefunds] Sweep complete', summary);
+        return summary;
+    }
+
+    // -------------------------------------------------------------
+    // Authoritative Razorpay Refund Reconciliation Helper
+    // -------------------------------------------------------------
+    static async reconcileRazorpayRefund(paymentId, customRzp = null) {
+        const rzp = customRzp || getRazorpayClient();
+        if (!rzp || !paymentId) return null;
+
+        // 1. Authoritative check via fetchMultipleRefund
+        try {
+            if (rzp.payments && typeof rzp.payments.fetchMultipleRefund === 'function') {
+                const refundList = await rzp.payments.fetchMultipleRefund(paymentId);
+                if (refundList && Array.isArray(refundList.items) && refundList.items.length > 0) {
+                    // Priority 1: Check for authoritatively processed refund
+                    const processedRefund = refundList.items.find(r => r.status === 'processed');
+                    if (processedRefund && processedRefund.id) {
+                        return {
+                            state: 'PROCESSED',
+                            refundId: processedRefund.id,
+                            status: 'processed',
+                            amount: processedRefund.amount ? processedRefund.amount / 100 : null
+                        };
+                    }
+
+                    // Priority 2: Check for in-flight pending/created refund (awaiting banking settlement)
+                    const pendingRefund = refundList.items.find(r => r.status === 'created' || r.status === 'pending');
+                    if (pendingRefund && pendingRefund.id) {
+                        return {
+                            state: 'PENDING',
+                            refundId: pendingRefund.id,
+                            status: pendingRefund.status || 'created',
+                            amount: pendingRefund.amount ? pendingRefund.amount / 100 : null
+                        };
+                    }
+
+                    // Priority 3: Check if all refund records failed
+                    const allFailed = refundList.items.every(r => r.status === 'failed');
+                    if (allFailed) {
+                        return {
+                            state: 'FAILED',
+                            refundId: refundList.items[0].id,
+                            status: 'failed',
+                            amount: refundList.items[0].amount ? refundList.items[0].amount / 100 : null
+                        };
+                    }
+                }
+            }
+        } catch (fetchErr) {
+            // Ignore and try fallback
+        }
+
+        // 2. Authoritative check via payment entity fetch
+        try {
+            if (rzp.payments && typeof rzp.payments.fetch === 'function') {
+                const payment = await rzp.payments.fetch(paymentId);
+                if (payment && (payment.refund_status === 'full' || (payment.amount_refunded && payment.amount_refunded > 0))) {
+                    return {
+                        state: 'PROCESSED',
+                        refundId: `rfnd_reconciled_${paymentId}`,
+                        status: 'processed',
+                        amount: payment.amount_refunded ? payment.amount_refunded / 100 : null
+                    };
+                }
+            }
+        } catch (pErr) {
+            // Ignore
+        }
+
+        return null;
+    }
+
+    // -------------------------------------------------------------
     // Option B: Refund for Managed Swap Cancellation
     // -------------------------------------------------------------
     static async processSwapRefund(swapId, userId, reason = 'Swap cancelled before courier pickup') {
-        const connection = await pool.getConnection();
+        const STALE_REFUND_TIMEOUT_MS = 60 * 1000; // 60s timeout for in-flight refund locks
+        const claimToken = crypto.randomBytes(8).toString('hex');
+        const claimedStatus = `REFUND_PROCESSING:${claimToken}`;
+
+        // =========================================================
+        // PHASE 1: Short DB Transaction - Validate, Check Idempotency & Claim Locks
+        // =========================================================
+        let paymentsToProcess = [];
+        let swapData = null;
+
+        const phase1Conn = await pool.getConnection();
         try {
-            await connection.beginTransaction();
+            await phase1Conn.beginTransaction();
 
-            const [swapRows] = await connection.execute('SELECT * FROM swap_requests WHERE id = ? FOR UPDATE', [swapId]);
-            const swap = swapRows[0];
-            if (!swap) throw new Error('Swap request not found');
+            const [swapRows] = await phase1Conn.execute('SELECT * FROM swap_requests WHERE id = ? FOR UPDATE', [swapId]);
+            swapData = swapRows[0];
+            if (!swapData) throw new Error('Swap request not found');
 
-            const isRequester = parseInt(swap.requester_id, 10) === parseInt(userId, 10);
-            const isOwner = parseInt(swap.owner_id, 10) === parseInt(userId, 10);
+            const isRequester = parseInt(swapData.requester_id, 10) === parseInt(userId, 10);
+            const isOwner = parseInt(swapData.owner_id, 10) === parseInt(userId, 10);
             if (!isRequester && !isOwner) {
                 throw new Error('Only exchange participants can cancel and request refund.');
             }
 
-            if (swap.courier_status === 'book_collected' || swap.courier_status === 'in_transit' || swap.courier_status === 'delivered') {
+            if (['book_collected', 'in_transit', 'delivered', 'completed'].includes(swapData.courier_status)) {
                 throw new Error('Cannot refund once books have been collected by courier.');
             }
 
-            // Find captured payments for this swap
-            const [payments] = await connection.execute(
-                'SELECT * FROM swap_payments WHERE swap_id = ? AND status = "CAPTURED"',
+            // Find all payments for this swap
+            const [allPayments] = await phase1Conn.execute(
+                'SELECT * FROM swap_payments WHERE swap_id = ? FOR UPDATE',
                 [swapId]
             );
 
-            const rzp = getRazorpayClient();
+            // Check if there are active in-progress refunds from a concurrent request
+            const now = Date.now();
+            const inProgressPayments = allPayments.filter(p => {
+                if (!p.status || !p.status.startsWith('REFUND_PROCESSING')) return false;
+                const updatedAt = p.updated_at ? new Date(p.updated_at).getTime() : 0;
+                return (now - updatedAt) < STALE_REFUND_TIMEOUT_MS;
+            });
 
-            for (const pay of payments) {
-                let refundId = `rfnd_test_${Date.now()}_${pay.id}`;
-                if (rzp && pay.razorpay_payment_id && !pay.razorpay_payment_id.startsWith('pay_sandbox_')) {
-                    try {
-                        const rzpRefund = await rzp.payments.refund(pay.razorpay_payment_id, {
-                            amount: Math.round(parseFloat(pay.amount) * 100),
-                            notes: { reason, swapId }
-                        });
-                        refundId = rzpRefund.id;
-                    } catch (rzpErr) {
-                        console.warn('Razorpay refund API warning:', rzpErr.message);
-                    }
+            if (inProgressPayments.length > 0) {
+                await phase1Conn.commit();
+                return {
+                    success: false,
+                    inProgress: true,
+                    message: 'A refund is currently in progress for this exchange. Please wait a moment and refresh.'
+                };
+            }
+
+            // Filter payments eligible for refund:
+            // CAPTURED, REFUND_FAILED, REFUND_PENDING, or stale REFUND_PROCESSING
+            const eligiblePayments = allPayments.filter(p => {
+                if (p.status === 'CAPTURED' || p.status === 'REFUND_FAILED' || p.status === 'REFUND_PENDING') return true;
+                if (p.status && p.status.startsWith('REFUND_PROCESSING')) {
+                    const updatedAt = p.updated_at ? new Date(p.updated_at).getTime() : 0;
+                    return (now - updatedAt) >= STALE_REFUND_TIMEOUT_MS;
                 }
+                return false;
+            });
 
-                await connection.execute(`
-                    UPDATE swap_payments 
-                    SET status = 'REFUNDED', 
-                        refund_id = ?, 
-                        refund_amount = amount,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                `, [refundId, pay.id]);
+            // If no eligible payments remain, check if already cancelled and refunded (Idempotency)
+            if (eligiblePayments.length === 0) {
+                const refundedPayments = allPayments.filter(p => p.status === 'REFUNDED');
+                if (refundedPayments.length > 0 || swapData.status === 'cancelled') {
+                    // Self-healing: if payments are refunded but swap was not yet marked cancelled or books reserved
+                    if (swapData.status !== 'cancelled') {
+                        await phase1Conn.execute(
+                            "UPDATE books SET status = 'available' WHERE id IN (?, ?) AND status = 'reserved'",
+                            [swapData.requested_book_id, swapData.offered_book_id]
+                        );
+                        await phase1Conn.execute(`
+                            UPDATE swap_requests 
+                            SET status = 'cancelled',
+                                requester_paid = 0,
+                                owner_paid = 0,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        `, [swapId]);
+                    }
+                    await phase1Conn.commit();
+                    return { success: true, message: 'Exchange was already cancelled and shipping fees refunded.', alreadyRefunded: true };
+                }
+            }
 
-                await connection.execute(
-                    'INSERT INTO swap_timeline (swap_id, status, message, actor_id) VALUES (?, "refunded", ?, ?)',
-                    [swapId, `Shipping fee of ₹${pay.amount} was refunded to ${pay.role}.`, userId]
+            // Atomically claim eligible payments using unique worker claim token
+            if (eligiblePayments.length > 0) {
+                const claimIds = eligiblePayments.map(p => p.id);
+                const placeholders = claimIds.map(() => '?').join(',');
+                await phase1Conn.execute(
+                    `UPDATE swap_payments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN (${placeholders})`,
+                    [claimedStatus, ...claimIds]
                 );
             }
 
-            // Release books back to available
-            await connection.execute(
-                "UPDATE books SET status = 'available' WHERE id IN (?, ?) AND status = 'reserved'",
-                [swap.requested_book_id, swap.offered_book_id]
+            await phase1Conn.commit();
+            for (const p of eligiblePayments) {
+                p.claimedStatus = claimedStatus;
+            }
+            paymentsToProcess = eligiblePayments;
+        } catch (error) {
+            await phase1Conn.rollback();
+            throw error;
+        } finally {
+            phase1Conn.release();
+        }
+
+        if (paymentsToProcess.length === 0) {
+            return { success: true, message: 'No payments required refund.', alreadyRefunded: true };
+        }
+
+        // =========================================================
+        // PHASE 2: Gateway Execution & Authoritative Reconciliation (NO DB LOCKS HELD!)
+        // =========================================================
+        const rzp = getRazorpayClient();
+        const processedPaymentIds = new Map(); // Maps razorpay_payment_id -> { refundId, refundState, refundErrorMsg }
+        const paymentResults = [];
+
+        for (const pay of paymentsToProcess) {
+            // Deduplicate by razorpay_payment_id:
+            // Prevent multiple gateway refund requests for the same actual payment
+            if (pay.razorpay_payment_id && processedPaymentIds.has(pay.razorpay_payment_id)) {
+                const cachedResult = processedPaymentIds.get(pay.razorpay_payment_id);
+                paymentResults.push({
+                    payment: pay,
+                    refundId: cachedResult.refundId,
+                    refundState: cachedResult.refundState,
+                    refundErrorMsg: cachedResult.refundErrorMsg,
+                    claimedStatus
+                });
+                continue;
+            }
+
+            let refundId = null;
+            let refundState = 'NONE'; // 'PROCESSED' | 'PENDING' | 'FAILED' | 'NONE'
+            let refundErrorMsg = null;
+
+            if (rzp && pay.razorpay_payment_id && !pay.razorpay_payment_id.startsWith('pay_sandbox_') && !pay.razorpay_payment_id.startsWith('pay_test_')) {
+                // Step 2A: Authoritative Gateway Reconciliation Check before requesting a new refund
+                const existingGatewayRefund = await Swap.reconcileRazorpayRefund(pay.razorpay_payment_id, rzp);
+                if (existingGatewayRefund) {
+                    if (existingGatewayRefund.state === 'PROCESSED') {
+                        refundId = existingGatewayRefund.refundId;
+                        refundState = 'PROCESSED';
+                    } else if (existingGatewayRefund.state === 'PENDING') {
+                        refundId = existingGatewayRefund.refundId;
+                        refundState = 'PENDING';
+                    } else if (existingGatewayRefund.state === 'FAILED') {
+                        // Previous gateway attempt failed; allow fresh refund attempt below
+                        refundState = 'NONE';
+                    }
+                }
+
+                // Step 2B: Attempt gateway refund only if no processed or pending refund exists
+                if (refundState === 'NONE') {
+                    try {
+                        const rzpRefund = await rzp.payments.refund(pay.razorpay_payment_id, {
+                            amount: Math.round(parseFloat(pay.amount) * 100),
+                            notes: { reason, swapId, paymentDbId: pay.id }
+                        });
+
+                        if (rzpRefund && rzpRefund.status === 'processed') {
+                            refundId = rzpRefund.id;
+                            refundState = 'PROCESSED';
+                        } else if (rzpRefund && (rzpRefund.status === 'created' || rzpRefund.status === 'pending')) {
+                            refundId = rzpRefund.id;
+                            refundState = 'PENDING';
+                        } else if (rzpRefund && rzpRefund.status === 'failed') {
+                            refundState = 'FAILED';
+                            refundErrorMsg = 'Gateway returned failed status for refund request.';
+                        } else if (rzpRefund && rzpRefund.id) {
+                            // If status not explicit, re-verify authoritatively
+                            const postVerify = await Swap.reconcileRazorpayRefund(pay.razorpay_payment_id, rzp);
+                            if (postVerify && postVerify.state === 'PROCESSED') {
+                                refundId = postVerify.refundId;
+                                refundState = 'PROCESSED';
+                            } else {
+                                refundId = rzpRefund.id;
+                                refundState = 'PENDING';
+                            }
+                        } else {
+                            refundState = 'FAILED';
+                            refundErrorMsg = 'Gateway response did not contain a valid refund confirmation.';
+                        }
+                    } catch (rzpErr) {
+                        // Step 2C: Gateway Timeout or Failure Reconciliation Check
+                        const postErrorReconciliation = await Swap.reconcileRazorpayRefund(pay.razorpay_payment_id, rzp);
+                        if (postErrorReconciliation && postErrorReconciliation.state === 'PROCESSED') {
+                            refundId = postErrorReconciliation.refundId;
+                            refundState = 'PROCESSED';
+                        } else if (postErrorReconciliation && postErrorReconciliation.state === 'PENDING') {
+                            refundId = postErrorReconciliation.refundId;
+                            refundState = 'PENDING';
+                        } else {
+                            refundState = 'FAILED';
+                            refundErrorMsg = rzpErr.message || 'Razorpay refund API call failed.';
+                            console.warn(`Razorpay refund failed for payment ${pay.id} (${pay.razorpay_payment_id}):`, refundErrorMsg);
+                        }
+                    }
+                }
+            } else {
+                // Test mode / sandbox mock refund
+                refundId = `rfnd_mock_${Date.now()}_${pay.id}`;
+                refundState = 'PROCESSED';
+            }
+
+            if (pay.razorpay_payment_id) {
+                processedPaymentIds.set(pay.razorpay_payment_id, { refundId, refundState, refundErrorMsg });
+            }
+
+            paymentResults.push({
+                payment: pay,
+                refundId,
+                refundState,
+                refundErrorMsg,
+                claimedStatus
+            });
+        }
+
+        // =========================================================
+        // PHASE 3: Short DB Transaction - Fencing Enforcement, State Finalization & Release
+        // =========================================================
+        const phase3Conn = await pool.getConnection();
+        let successfulRefunds = 0;
+        let pendingRefunds = 0;
+        let refundFailures = 0;
+        let claimOwnershipLost = false;
+
+        try {
+            await phase3Conn.beginTransaction();
+
+            const [freshSwapRows] = await phase3Conn.execute('SELECT * FROM swap_requests WHERE id = ? FOR UPDATE', [swapId]);
+            const freshSwap = freshSwapRows[0] || swapData;
+
+            for (const item of paymentResults) {
+                const { payment: pay, refundId, refundState, refundErrorMsg, claimedStatus: itemClaimedStatus } = item;
+
+                if (refundState === 'PROCESSED' && refundId) {
+                    successfulRefunds++;
+                    const [updateRes] = await phase3Conn.execute(`
+                        UPDATE swap_payments 
+                        SET status = 'REFUNDED', 
+                            refund_id = ?, 
+                            refund_amount = amount,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ? AND status = ?
+                    `, [refundId, pay.id, itemClaimedStatus]);
+
+                    if (updateRes.affectedRows === 0) {
+                        claimOwnershipLost = true;
+                        break;
+                    }
+
+                    // Check timeline idempotency before inserting
+                    const [existingTimeline] = await phase3Conn.execute(
+                        'SELECT id FROM swap_timeline WHERE swap_id = ? AND status = "refunded" AND message LIKE ?',
+                        [swapId, `%Ref: ${refundId}%`]
+                    );
+                    if (existingTimeline.length === 0) {
+                        await phase3Conn.execute(
+                            'INSERT INTO swap_timeline (swap_id, status, message, actor_id) VALUES (?, "refunded", ?, ?)',
+                            [swapId, `Shipping fee of ₹${pay.amount} was refunded to ${pay.role} (Ref: ${refundId}).`, userId]
+                        );
+                    }
+                } else if (refundState === 'PENDING' && refundId) {
+                    pendingRefunds++;
+                    const [updateRes] = await phase3Conn.execute(`
+                        UPDATE swap_payments 
+                        SET status = 'REFUND_PENDING', 
+                            refund_id = ?, 
+                            refund_amount = amount,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ? AND status = ?
+                    `, [refundId, pay.id, itemClaimedStatus]);
+
+                    if (updateRes.affectedRows === 0) {
+                        claimOwnershipLost = true;
+                        break;
+                    }
+
+                    const [existingTimeline] = await phase3Conn.execute(
+                        'SELECT id FROM swap_timeline WHERE swap_id = ? AND status = "refund_pending" AND message LIKE ?',
+                        [swapId, `%Ref: ${refundId}%`]
+                    );
+                    if (existingTimeline.length === 0) {
+                        await phase3Conn.execute(
+                            'INSERT INTO swap_timeline (swap_id, status, message, actor_id) VALUES (?, "refund_pending", ?, ?)',
+                            [swapId, `Refund of ₹${pay.amount} for ${pay.role} was initiated and is pending bank settlement (Ref: ${refundId}).`, userId]
+                        );
+                    }
+                } else {
+                    refundFailures++;
+                    const [updateRes] = await phase3Conn.execute(`
+                        UPDATE swap_payments 
+                        SET status = 'REFUND_FAILED',
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ? AND status = ?
+                    `, [pay.id, itemClaimedStatus]);
+
+                    if (updateRes.affectedRows === 0) {
+                        claimOwnershipLost = true;
+                        break;
+                    }
+
+                    await phase3Conn.execute(
+                        'INSERT INTO swap_timeline (swap_id, status, message, actor_id) VALUES (?, "refund_failed", ?, ?)',
+                        [swapId, `Refund attempt of ₹${pay.amount} for ${pay.role} failed: ${refundErrorMsg}`, userId]
+                    );
+                }
+            }
+
+            // Enforce worker fencing: abort transaction if claim ownership was lost to a newer worker
+            if (claimOwnershipLost) {
+                await phase3Conn.rollback();
+                return {
+                    success: false,
+                    claimLost: true,
+                    message: 'Refund worker lost claim ownership to a concurrent or newer worker. Aborting without mutating state.'
+                };
+            }
+
+            // Verify status of ALL payments for this swap
+            const [allCurrentPayments] = await phase3Conn.execute(
+                'SELECT id, status FROM swap_payments WHERE swap_id = ?',
+                [swapId]
             );
 
-            await connection.execute(`
+            const hasUnconfirmedPayments = allCurrentPayments.some(p => p.status !== 'REFUNDED');
+
+            if (hasUnconfirmedPayments || pendingRefunds > 0 || refundFailures > 0) {
+                // Do NOT release books or cancel swap until all refunds are authoritatively REFUNDED
+                await phase3Conn.commit();
+                return {
+                    success: false,
+                    pending: pendingRefunds > 0,
+                    failed: refundFailures > 0,
+                    message: pendingRefunds > 0
+                        ? `Refund request of ₹${paymentsToProcess[0]?.amount || '79.00'} was accepted by gateway and is pending bank settlement. Books remain reserved until settlement is confirmed.`
+                        : `Refund processing encountered failures for ${refundFailures} payment(s).`,
+                    successfulRefunds,
+                    pendingRefunds,
+                    refundFailures
+                };
+            }
+
+            // All payments are authoritatively verified REFUNDED! Safe to release books and cancel swap
+            await phase3Conn.execute(
+                "UPDATE books SET status = 'available' WHERE id IN (?, ?) AND status = 'reserved'",
+                [freshSwap.requested_book_id, freshSwap.offered_book_id]
+            );
+
+            await phase3Conn.execute(`
                 UPDATE swap_requests 
                 SET status = 'cancelled',
                     requester_paid = 0,
@@ -1125,13 +1969,13 @@ class Swap {
                 WHERE id = ?
             `, [swapId]);
 
-            await connection.commit();
-            return { success: true, message: 'Exchange cancelled and shipping fees refunded.' };
+            await phase3Conn.commit();
+            return { success: true, message: 'Exchange cancelled and shipping fees refunded.', successfulRefunds };
         } catch (error) {
-            await connection.rollback();
+            await phase3Conn.rollback();
             throw error;
         } finally {
-            connection.release();
+            phase3Conn.release();
         }
     }
 
