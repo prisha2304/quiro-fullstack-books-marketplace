@@ -6,6 +6,9 @@ const metricsService = require('../services/metricsService');
 const { validateEnvironment } = require('../config/envValidator');
 const jobEngineService = require('../services/jobEngineService');
 const webhookService = require('../services/webhookService');
+const { protect } = require('../middleware/authMiddleware');
+const { admin } = require('../middleware/adminMiddleware');
+const logger = require('../services/logger');
 
 // Root health check endpoint
 router.get('/', async (req, res) => {
@@ -17,10 +20,12 @@ router.get('/', async (req, res) => {
             timestamp: new Date().toISOString()
         });
     } catch (e) {
+        logger.error('Root health check database probe failed', { error: e.message });
         return res.status(503).json({
             status: 'DOWN',
             readiness: 'NOT_READY',
-            error: e.message
+            error: 'Database unreachable',
+            timestamp: new Date().toISOString()
         });
     }
 });
@@ -44,6 +49,7 @@ router.get('/ready', async (req, res) => {
             timestamp: new Date().toISOString()
         });
     } catch (e) {
+        logger.error('Readiness health check database probe failed', { error: e.message });
         return res.status(503).json({
             status: 'DOWN',
             readiness: 'NOT_READY',
@@ -54,7 +60,7 @@ router.get('/ready', async (req, res) => {
 });
 
 // Deep Dependencies Check
-router.get('/dependencies', async (req, res) => {
+router.get('/dependencies', protect, admin, async (req, res) => {
     const checks = {};
     let isHealthy = true;
 
@@ -64,7 +70,8 @@ router.get('/dependencies', async (req, res) => {
         await pool.execute('SELECT 1');
         checks.database = { status: 'UP', latencyMs: Date.now() - start };
     } catch (e) {
-        checks.database = { status: 'DOWN', error: e.message };
+        logger.error('Dependencies check database probe failed', { error: e.message });
+        checks.database = { status: 'DOWN', error: 'Database unreachable' };
         isHealthy = false;
     }
 
@@ -95,13 +102,13 @@ router.get('/dependencies', async (req, res) => {
 });
 
 // Operational Metrics
-router.get('/metrics', (req, res) => {
+router.get('/metrics', protect, admin, (req, res) => {
     const summary = metricsService.getMetricsSummary();
     return res.json(summary);
 });
 
 // Production Diagnostics Full Snapshot (Admin / Dashboard)
-router.get('/diagnostics', async (req, res) => {
+router.get('/diagnostics', protect, admin, async (req, res) => {
     try {
         const metrics = metricsService.getMetricsSummary();
         const env = validateEnvironment();
@@ -112,6 +119,7 @@ router.get('/diagnostics', async (req, res) => {
         try {
             await pool.execute('SELECT 1');
         } catch (e) {
+            logger.error('Diagnostics database probe failed', { error: e.message });
             dbStatus = 'DOWN';
         }
 
@@ -142,7 +150,8 @@ router.get('/diagnostics', async (req, res) => {
 
         return res.json(diagnostics);
     } catch (e) {
-        return res.status(500).json({ message: e.message || 'Failed to fetch diagnostics' });
+        logger.error('Diagnostics snapshot generation failed', { error: e.message });
+        return res.status(500).json({ message: 'Failed to fetch diagnostics' });
     }
 });
 

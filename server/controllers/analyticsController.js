@@ -53,7 +53,7 @@ const getSellers = async (req, res) => {
 
 const getSellerAnalytics = async (req, res) => {
     try {
-        const sellerId = req.user.id;
+        const sellerId = (req.user.role === 'ADMIN' && req.query.sellerId) ? req.query.sellerId : req.user.id;
         const analytics = await AnalyticsService.getSellerScopedAnalytics(sellerId);
         res.json(analytics);
     } catch (error) {

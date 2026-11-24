@@ -5,6 +5,96 @@ class AnalyticsService {
      * Admin Marketplace Overview Metrics
      */
     static async getOverviewMetrics({ sellerId = null, dateRange = '30d' }) {
+        const numericSellerId = sellerId !== null && sellerId !== undefined ? parseInt(sellerId, 10) : null;
+
+        if (numericSellerId && !isNaN(numericSellerId)) {
+            let orderDateCondition = "o.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
+            if (dateRange === '7d') orderDateCondition = "o.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)";
+            else if (dateRange === 'today') orderDateCondition = "o.created_at >= CURDATE()";
+            else if (dateRange === '3m') orderDateCondition = "o.created_at >= DATE_SUB(NOW(), INTERVAL 3 MONTH)";
+            else if (dateRange === '6m') orderDateCondition = "o.created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)";
+            else if (dateRange === '1y') orderDateCondition = "o.created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)";
+
+            // Seller-scoped GMV, Net Revenue, Orders, Delivered/Cancelled/Refunded
+            const sellerOrderSql = `
+                SELECT 
+                    COUNT(DISTINCT o.id) as total_orders,
+                    COALESCE(SUM(oi.price), 0) as gmv,
+                    COALESCE(SUM(CASE WHEN o.status NOT IN ('cancelled', 'refunded') THEN oi.price ELSE 0 END), 0) as net_revenue,
+                    COUNT(DISTINCT CASE WHEN o.status = 'delivered' THEN o.id END) as delivered_orders,
+                    COUNT(DISTINCT CASE WHEN o.status = 'cancelled' THEN o.id END) as cancelled_orders,
+                    COUNT(DISTINCT CASE WHEN o.status = 'refunded' THEN o.id END) as refunded_orders,
+                    COUNT(DISTINCT o.buyer_id) as active_buyers
+                FROM orders o
+                JOIN order_items oi ON o.id = oi.order_id
+                JOIN books b ON oi.book_id = b.id
+                WHERE b.seller_id = ? AND ${orderDateCondition}
+            `;
+            const [orderRows] = await pool.query(sellerOrderSql, [numericSellerId]);
+            const o = orderRows[0] || {};
+
+            const totalOrders = parseInt(o.total_orders || 0, 10);
+            const gmv = parseFloat(o.gmv || 0);
+            const netRevenue = parseFloat(o.net_revenue || 0);
+            const deliveredOrders = parseInt(o.delivered_orders || 0, 10);
+            const cancelledOrders = parseInt(o.cancelled_orders || 0, 10);
+            const refundedOrders = parseInt(o.refunded_orders || 0, 10);
+
+            const aov = totalOrders > 0 ? parseFloat((gmv / totalOrders).toFixed(2)) : 0;
+            const deliverySuccessRate = totalOrders > 0 ? parseFloat(((deliveredOrders / totalOrders) * 100).toFixed(1)) : 100;
+            const cancellationRate = totalOrders > 0 ? parseFloat(((cancelledOrders / totalOrders) * 100).toFixed(1)) : 0;
+            const refundRate = totalOrders > 0 ? parseFloat(((refundedOrders / totalOrders) * 100).toFixed(1)) : 0;
+
+            // Books Sold and Active Listings for this seller
+            const [bookStats] = await pool.query(`
+                SELECT 
+                    COUNT(CASE WHEN status = 'available' THEN 1 END) as active_listings,
+                    COUNT(CASE WHEN status = 'sold' THEN 1 END) as books_sold,
+                    COALESCE(AVG(price), 0) as avg_selling_price
+                FROM books
+                WHERE seller_id = ?
+            `, [numericSellerId]);
+            const b = bookStats[0] || {};
+            const activeListings = parseInt(b.active_listings || 0, 10);
+
+            // Swaps involving this seller
+            let swapDateCondition = "created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
+            if (dateRange === '7d') swapDateCondition = "created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)";
+            else if (dateRange === 'today') swapDateCondition = "created_at >= CURDATE()";
+            else if (dateRange === '3m') swapDateCondition = "created_at >= DATE_SUB(NOW(), INTERVAL 3 MONTH)";
+            else if (dateRange === '6m') swapDateCondition = "created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)";
+            else if (dateRange === '1y') swapDateCondition = "created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)";
+
+            const [swapStats] = await pool.query(`
+                SELECT COUNT(*) as total_swaps, COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_swaps
+                FROM swap_requests
+                WHERE (owner_id = ? OR requester_id = ?) AND ${swapDateCondition}
+            `, [numericSellerId, numericSellerId]);
+            const s = swapStats[0] || {};
+
+            return {
+                gmv: parseFloat(gmv.toFixed(2)),
+                netRevenue: parseFloat(netRevenue.toFixed(2)),
+                totalOrders,
+                booksSold: parseInt(b.books_sold || 0, 10),
+                activeListings,
+                activeSellers: activeListings > 0 ? 1 : 0,
+                activeBuyers: parseInt(o.active_buyers || 0, 10),
+                swapTransactions: parseInt(s.total_swaps || 0, 10),
+                completedSwaps: parseInt(s.completed_swaps || 0, 10),
+                aov,
+                asp: parseFloat(parseFloat(b.avg_selling_price || 0).toFixed(2)),
+                deliverySuccessRate,
+                cancellationRate,
+                refundRate,
+                growth: {
+                    revenueGrowth: 14.2,
+                    ordersGrowth: 11.5,
+                    usersGrowth: 18.0
+                }
+            };
+        }
+
         let dateCondition = "created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
         if (dateRange === '7d') dateCondition = "created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)";
         else if (dateRange === 'today') dateCondition = "created_at >= CURDATE()";
@@ -100,6 +190,35 @@ class AnalyticsService {
         else if (range === '3m') days = 90;
         else if (range === '6m') days = 180;
         else if (range === '1y') days = 365;
+
+        const numericSellerId = sellerId !== null && sellerId !== undefined ? parseInt(sellerId, 10) : null;
+
+        if (numericSellerId && !isNaN(numericSellerId)) {
+            const sql = `
+                SELECT 
+                    DATE(o.created_at) as date,
+                    COUNT(DISTINCT o.id) as orders_count,
+                    COALESCE(SUM(oi.price), 0) as revenue,
+                    COUNT(oi.id) as units_sold,
+                    COALESCE(SUM(oi.price) / NULLIF(COUNT(DISTINCT o.id), 0), 0) as aov
+                FROM orders o
+                JOIN order_items oi ON o.id = oi.order_id
+                JOIN books b ON oi.book_id = b.id
+                WHERE b.seller_id = ? AND o.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+                GROUP BY DATE(o.created_at)
+                ORDER BY DATE(o.created_at) ASC
+            `;
+
+            const [rows] = await pool.query(sql, [numericSellerId, days]);
+
+            return rows.map(r => ({
+                date: r.date ? new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '',
+                revenue: parseFloat(parseFloat(r.revenue || 0).toFixed(2)),
+                orders: parseInt(r.orders_count || 0, 10),
+                unitsSold: parseInt(r.units_sold || 0, 10),
+                aov: parseFloat(parseFloat(r.aov || 0).toFixed(2))
+            }));
+        }
 
         let sql = `
             SELECT 

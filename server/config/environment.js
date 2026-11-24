@@ -47,7 +47,17 @@ class EnvironmentConfig {
         };
     }
 
+    getCorsConfig() {
+        const { getAllowedOrigins } = require('./cors');
+        return {
+            isProduction: this.isProduction,
+            clientUrl: process.env.CLIENT_URL || (this.isProduction ? null : 'http://localhost:5173'),
+            allowedOrigins: getAllowedOrigins()
+        };
+    }
+
     getSafeSummary() {
+        const { getAllowedOrigins } = require('./cors');
         return {
             nodeEnv: this.nodeEnv,
             port: this.port,
@@ -57,7 +67,8 @@ class EnvironmentConfig {
             payments: this.getPaymentConfig(),
             storage: this.getStorageConfig(),
             cors: {
-                clientUrl: process.env.CLIENT_URL || 'http://localhost:5173'
+                clientUrl: process.env.CLIENT_URL || (this.isProduction ? null : 'http://localhost:5173'),
+                allowedOrigins: getAllowedOrigins()
             }
         };
     }

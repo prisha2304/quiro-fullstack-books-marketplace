@@ -330,6 +330,26 @@ const advanceCourier = async (req, res) => {
     try {
         const { id } = req.params;
         const { stage } = req.body;
+
+        // 1. Retrieve the swap using its ID
+        const swap = await Swap.findById(id);
+
+        // 2. Return HTTP 404 if the swap does not exist
+        if (!swap) {
+            return res.status(404).json({ message: 'Swap request not found' });
+        }
+
+        // 3. Verify that the authenticated user is either requester, owner, or ADMIN
+        const isRequester = parseInt(swap.requester_id, 10) === parseInt(req.user.id, 10);
+        const isOwner = parseInt(swap.owner_id, 10) === parseInt(req.user.id, 10);
+        const isAdmin = req.user?.role === 'ADMIN';
+
+        // 4. Return HTTP 403 for unauthorized users
+        if (!isRequester && !isOwner && !isAdmin) {
+            return res.status(403).json({ message: 'Access denied: You are not authorized to advance this exchange' });
+        }
+
+        // 5. Only after authorization succeeds, call Swap.advanceCourierStage()
         const updated = await Swap.advanceCourierStage(id, stage);
 
         try {
@@ -357,6 +377,9 @@ const refundSwap = async (req, res) => {
         const { id } = req.params;
         const { reason } = req.body;
         const result = await Swap.processSwapRefund(id, req.user.id, reason);
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
         res.json(result);
     } catch (error) {
         res.status(400).json({ message: error.message });

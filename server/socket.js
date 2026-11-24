@@ -1,24 +1,17 @@
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
 
+const { isOriginAllowed } = require('./config/cors');
+
 let io;
 // userId -> { sockets: Set(), lastSeen: Date }
 const userPresence = new Map();
 
 const init = (server) => {
-    const configuredClient = process.env.CLIENT_URL || 'http://localhost:5173';
-    const allowedOrigins = [
-        configuredClient,
-        'http://localhost:5173',
-        'http://127.0.0.1:5173',
-        'http://localhost:3000',
-        'http://localhost:5000'
-    ];
-
     io = socketIo(server, {
         cors: {
             origin: (origin, callback) => {
-                if (!origin || allowedOrigins.includes(origin)) {
+                if (isOriginAllowed(origin)) {
                     callback(null, true);
                 } else {
                     callback(new Error('CORS origin rejected by WebSocket gateway'));
@@ -26,6 +19,14 @@ const init = (server) => {
             },
             methods: ["GET", "POST"],
             credentials: true
+        },
+        allowRequest: (req, callback) => {
+            const origin = req.headers.origin;
+            if (isOriginAllowed(origin)) {
+                callback(null, true);
+            } else {
+                callback('CORS origin rejected by WebSocket gateway', false);
+            }
         },
         pingTimeout: 30000,
         pingInterval: 10000

@@ -58,8 +58,34 @@ try {
     }
 }
 
-// Verify Database Connectivity on Startup
-connectDB().catch(err => {
+// Verify Database Connectivity on Startup + Start Scheduled Reconciliation Worker
+connectDB().then(() => {
+    logger.info('Database connected. Starting scheduled swap refund reconciliation worker...');
+    const jobEngineService = require('./services/jobEngineService');
+
+    // Immediate startup sweep — catches refunds pending from before server restart
+    jobEngineService.executeJob('RECONCILE_SWAP_REFUNDS', {
+        idempotencyKey: `RECONCILE_SWAP_REFUNDS_startup_${Date.now()}`,
+        maxAttempts: 1,
+        triggerSource: 'SCHEDULER'
+    }).catch(err => logger.warn('Startup swap refund reconciliation failed (non-fatal)', { error: err.message }));
+
+    // Recurring 30-minute sweep; DB-level UNIQUE constraint on idempotency_key
+    // prevents concurrent execution across PM2 cluster instances
+    setInterval(async () => {
+        const windowKey = `RECONCILE_SWAP_REFUNDS_${Math.floor(Date.now() / (30 * 60 * 1000))}`;
+        try {
+            await jobEngineService.executeJob('RECONCILE_SWAP_REFUNDS', {
+                idempotencyKey: windowKey,
+                maxAttempts: 1,
+                triggerSource: 'SCHEDULER'
+            });
+        } catch (err) {
+            // Errors are non-fatal — logged and retried on next window
+            logger.warn('Scheduled swap refund reconciliation failed (non-fatal)', { error: err.message, windowKey });
+        }
+    }, 30 * 60 * 1000);
+}).catch(err => {
     logger.error('Database connection warning on startup', { error: err.message });
 });
 
@@ -67,10 +93,93 @@ const app = express();
 const server = http.createServer(app);
 socket.init(server);
 
+// Trust Proxy Configuration:
+// When running behind a trusted reverse proxy (e.g. Nginx in Docker / production),
+// trust loopback and private RFC1918 subnets (uniquelocal, linklocal) so req.ip resolves
+// to the real client IP forwarded by Nginx. Direct untrusted connections cannot spoof X-Forwarded-For.
+const trustProxyConfig = process.env.TRUST_PROXY 
+    ? (process.env.TRUST_PROXY === 'true' ? true : (process.env.TRUST_PROXY === 'false' ? false : (isNaN(process.env.TRUST_PROXY) ? process.env.TRUST_PROXY.split(',').map(s => s.trim()) : parseInt(process.env.TRUST_PROXY, 10))))
+    : (process.env.NODE_ENV === 'production' ? ['loopback', 'linklocal', 'uniquelocal'] : false);
+
+if (trustProxyConfig !== false) {
+    app.set('trust proxy', trustProxyConfig);
+}
+
 // Enterprise Security Hardening with Helmet & Security Headers
+//
+// Content Security Policy — Canonical Allowlist (mirrored in nginx/nginx.conf for the SPA):
+//
+// Dual CSP Architecture:
+// 1. Nginx attaches this policy to the top-level React SPA HTML document ('location /')
+//    where browsers actually enforce DOM, script, and frame security boundaries.
+// 2. Helmet attaches this policy here to Express API responses ('/api/*') as defense-in-depth
+//    against direct API navigation.
+// 3. Nginx does NOT set CSP in 'location /api/' or 'location /socket.io/', preventing duplicate headers.
+//
+// Directives & Justifications:
+//   default-src: Restrict all unlisted resource types to same-origin ('self').
+//   script-src:  Razorpay checkout SDK (checkout.razorpay.com),
+//                Google Identity Services (accounts.google.com),
+//                Vite-bundled application code ('self').
+//                No eval and no broad wildcards.
+//   style-src:   Google Fonts CSS (fonts.googleapis.com), bundled styles ('self').
+//                'unsafe-inline' is required because Vite and Tailwind CSS inject utility
+//                classes into <style> tags dynamically at runtime during client-side hydration.
+//   font-src:    Google Fonts binary assets (fonts.gstatic.com), bundled fonts ('self').
+//   img-src:     Cloudinary media CDN (res.cloudinary.com),
+//                Google user profile avatars (*.googleusercontent.com covering lh3..lh6),
+//                Razorpay badge images (checkout.razorpay.com),
+//                data: URIs for inline SVG fallbacks used in DisputeDetail component,
+//                blob: for canvas/object-URL patterns,
+//                self for locally hosted book covers / placeholder assets.
+//   connect-src: Same-origin API calls and Socket.IO ('self'),
+//                Google Books API (www.googleapis.com) used by googleBooksService,
+//                Razorpay payment gateway API (api.razorpay.com),
+//                Cloudinary upload endpoint (api.cloudinary.com),
+//                Google Identity Services authentication endpoints (accounts.google.com),
+//                WebSocket connections to same origin (ws: wss:).
+//   frame-src:   Google Identity Services One Tap / credential iframe (accounts.google.com),
+//                Razorpay checkout modals & 3D-Secure bank OTP verification (api.razorpay.com, checkout.razorpay.com),
+//                'self' for same-origin iframes.
+//   object-src:  Disallowed entirely ('none') to block Flash / plugin execution.
+//   base-uri:    Restricted to 'self' to prevent <base> tag hijacking.
+//   form-action: Restricted to 'self'.
+const cspDirectives = {
+    defaultSrc:     ["'self'"],
+    scriptSrc:      ["'self'", 'https://checkout.razorpay.com', 'https://accounts.google.com'],
+    styleSrc:       ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+    fontSrc:        ["'self'", 'https://fonts.gstatic.com'],
+    imgSrc:         [
+        "'self'",
+        'data:',
+        'blob:',
+        'https://res.cloudinary.com',
+        'https://*.googleusercontent.com',
+        'https://checkout.razorpay.com'
+    ],
+    connectSrc:     [
+        "'self'",
+        'https://www.googleapis.com',
+        'https://api.razorpay.com',
+        'https://api.cloudinary.com',
+        'https://accounts.google.com',
+        'wss:',
+        'ws:'
+    ],
+    frameSrc:       [
+        "'self'",
+        'https://accounts.google.com',
+        'https://api.razorpay.com',
+        'https://checkout.razorpay.com'
+    ],
+    objectSrc:      ["'none'"],
+    baseUri:        ["'self'"],
+    formAction:     ["'self'"],
+};
+
 app.use(helmet({
     crossOriginResourcePolicy: false,
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: { directives: cspDirectives },
     referrerPolicy: { policy: 'no-referrer-when-downgrade' },
     xContentTypeOptions: true
 }));
@@ -83,23 +192,19 @@ app.use((req, res, next) => {
 });
 
 // CORS Configuration - Restrict to Explicitly Configured Trusted Origins
-const allowedOrigins = [
-    process.env.CLIENT_URL,
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'http://localhost:5000'
-].filter(Boolean);
+const { isOriginAllowed } = require('./config/cors');
 
 app.use(cors({
     origin: (origin, callback) => {
         // Allow server-to-server, curl, mobile, or same-origin requests with no origin header
         if (!origin) return callback(null, true);
-        if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+        if (isOriginAllowed(origin)) {
             return callback(null, true);
         }
-        return callback(new Error(`CORS policy violation: Origin ${origin} not permitted`));
+        const err = new Error(`CORS policy violation: Origin ${origin} not permitted`);
+        err.statusCode = 403;
+        err.code = 'CORS_FORBIDDEN';
+        return callback(err);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -151,8 +256,15 @@ app.use('/api/auth/register', authLimiter);
 // Request Correlation & Structured Logging Middleware
 app.use(requestContextMiddleware);
 
-// Body Parsers with limits
-app.use(express.json({ limit: '10mb' }));
+// Body Parsers with limits & raw body capture for webhook HMAC signature verification
+app.use(express.json({
+    limit: '10mb',
+    verify: (req, res, buf) => {
+        if (buf && buf.length) {
+            req.rawBody = buf;
+        }
+    }
+}));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve static uploaded files
