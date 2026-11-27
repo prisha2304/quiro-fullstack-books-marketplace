@@ -22,7 +22,23 @@ export const SocketProvider = ({ children }) => {
       return;
     }
 
-    const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+    const resolveSocketUrl = () => {
+      if (import.meta.env.VITE_SOCKET_URL) {
+        return import.meta.env.VITE_SOCKET_URL.trim().replace(/\/+$/, '');
+      }
+      const apiUrl = import.meta.env.VITE_API_URL;
+      if (apiUrl && /^https?:\/\//i.test(apiUrl.trim())) {
+        return apiUrl.trim().replace(/\/api\/?$/, '');
+      }
+      if (apiUrl && apiUrl.trim().startsWith('/') && typeof window !== 'undefined') {
+        return window.location.origin;
+      }
+      return import.meta.env.DEV
+        ? 'http://localhost:5000'
+        : (typeof window !== 'undefined' ? window.location.origin : '');
+    };
+
+    const socketUrl = resolveSocketUrl();
     const authToken = user?.token || localStorage.getItem('token');
     const newSocket = io(socketUrl, {
       auth: { token: authToken },
