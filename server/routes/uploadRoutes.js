@@ -67,8 +67,15 @@ router.post('/', protect, (req, res) => {
       res.json({ urls });
     } catch (error) {
       // Cloudinary credential/network errors arrive here.
-      // Log the message only — never log the secret or full config object.
-      logger.error('Upload failed after multer parse', { message: error.message });
+      // Log safe diagnostic fields only — never log secrets, credentials, file contents, or tokens.
+      logger.error('Upload failed after multer parse', {
+        name: error?.name,
+        errorMessage: error?.message,
+        http_code: error?.http_code,
+        error: typeof error?.error === 'string'
+          ? error.error
+          : error?.error?.message || undefined
+      });
       res.status(500).json({ message: 'Upload failed. Please try again.' });
     }
   });
