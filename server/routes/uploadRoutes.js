@@ -76,6 +76,22 @@ router.post('/', protect, (req, res) => {
           ? error.error
           : error?.error?.message || undefined
       });
+
+      if (error?.http_code === 403 && isCloudinaryConfigured) {
+        try {
+          const pingRes = await cloudinary.api.ping();
+          logger.info('Cloudinary ping diagnostic on 403', {
+            status: pingRes?.status || 'ok'
+          });
+        } catch (pingErr) {
+          // Never log raw pingErr (execute_request attaches request_options.auth); log only safe status/message.
+          logger.error('Cloudinary ping diagnostic failed on 403', {
+            http_code: pingErr?.error?.http_code ?? pingErr?.http_code,
+            errorMessage: pingErr?.error?.message ?? pingErr?.message
+          });
+        }
+      }
+
       res.status(500).json({ message: 'Upload failed. Please try again.' });
     }
   });
