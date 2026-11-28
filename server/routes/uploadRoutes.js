@@ -6,17 +6,80 @@ const { upload, cloudinary, isCloudinaryConfigured } = require('../config/cloudi
 const { protect } = require('../middleware/authMiddleware');
 const logger = require('../services/logger');
 
+const CLOUDINARY_UPLOAD_OPTIONS = {
+  folder: 'booknest',
+  allowed_formats: ['jpg', 'png', 'jpeg', 'webp'],
+  transformation: [{ width: 1000, height: 1000, crop: 'limit' }],
+  resource_type: 'image'
+};
+
+// 1x1 transparent PNG used only for the 403 diagnostic probe (never user file contents).
+const DIAGNOSTIC_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
+function sanitizeDiagnosticSnippet(rawBody, contentType) {
+  if (!rawBody) return '';
+  let text = String(rawBody);
+  if (contentType && contentType.includes('application/json')) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed?.error?.message) {
+        text = String(parsed.error.message);
+      }
+    } catch {
+      // Fall back to truncated raw text
+    }
+  }
+  const cfg = cloudinary.config();
+  for (const secretVal of [cfg.api_secret, cfg.api_key]) {
+    if (secretVal && typeof secretVal === 'string') {
+      text = text.split(secretVal).join('[REDACTED]');
+    }
+  }
+  text = text.replace(/(api_secret|api_key|signature|token|authorization)=([^\s&"']+)/gi, '$1=[REDACTED]');
+  return text.replace(/\s+/g, ' ').trim().slice(0, 300);
+}
+
+// Captures the actual HTTP response body from Cloudinary's upload endpoint when
+// cloudinary.uploader.upload_stream discards it on HTTP 403 (UnexpectedResponse).
+async function probeCloudinaryUpload403() {
+  const uploadUrl = cloudinary.utils.api_url('upload', { resource_type: 'image' });
+  const signedParams = cloudinary.utils.sign_request(
+    cloudinary.utils.build_upload_params(CLOUDINARY_UPLOAD_OPTIONS),
+    {}
+  );
+
+  const form = new FormData();
+  for (const [key, value] of Object.entries(signedParams)) {
+    if (value != null) form.append(key, String(value));
+  }
+  const pngBuffer = Buffer.from(DIAGNOSTIC_PNG_BASE64, 'base64');
+  form.append('file', new Blob([pngBuffer], { type: 'image/png' }), 'diagnostic.png');
+
+  const response = await fetch(uploadUrl, {
+    method: 'POST',
+    body: form,
+    signal: AbortSignal.timeout(8000)
+  });
+
+  const contentType = response.headers.get('content-type') || undefined;
+  const xCldError = response.headers.get('x-cld-error') || undefined;
+  const rawBody = await response.text();
+
+  logger.error('Cloudinary upload endpoint 403 diagnostic', {
+    status: response.status,
+    contentType,
+    xCldError,
+    bodySnippet: sanitizeDiagnosticSnippet(rawBody, contentType)
+  });
+}
+
 // Streams a file buffer to Cloudinary and resolves with the secure URL.
 // Mirrors the established pattern in mediaStorageService.js.
 function uploadToCloudinary(buffer, originalname) {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: 'booknest',
-        allowed_formats: ['jpg', 'png', 'jpeg', 'webp'],
-        transformation: [{ width: 1000, height: 1000, crop: 'limit' }],
-        resource_type: 'image'
-      },
+      CLOUDINARY_UPLOAD_OPTIONS,
       (err, result) => {
         if (err) return reject(err);
         resolve(result.secure_url);
@@ -79,15 +142,11 @@ router.post('/', protect, (req, res) => {
 
       if (error?.http_code === 403 && isCloudinaryConfigured) {
         try {
-          const pingRes = await cloudinary.api.ping();
-          logger.error('Cloudinary ping diagnostic on 403', {
-            status: pingRes?.status || 'ok'
-          });
-        } catch (pingErr) {
-          // Never log raw pingErr (execute_request attaches request_options.auth); log only safe status/message.
-          logger.error('Cloudinary ping diagnostic failed on 403', {
-            http_code: pingErr?.error?.http_code ?? pingErr?.http_code,
-            errorMessage: pingErr?.error?.message ?? pingErr?.message
+          await probeCloudinaryUpload403();
+        } catch (probeErr) {
+          logger.error('Cloudinary upload endpoint 403 diagnostic failed', {
+            name: probeErr?.name,
+            errorMessage: probeErr?.message
           });
         }
       }
