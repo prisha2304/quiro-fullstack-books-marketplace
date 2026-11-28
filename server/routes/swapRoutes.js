@@ -41,10 +41,15 @@ router.get('/outgoing', getOutgoingRequests);
 router.get('/history', getSwapHistory);
 
 // Status actions
-router.put('/:id/accept', (req, res) => { req.body.status = 'accepted'; handleStatusUpdate(req, res); });
-router.put('/:id/reject', (req, res) => { req.body.status = 'rejected'; handleStatusUpdate(req, res); });
-router.put('/:id/cancel', (req, res) => { req.body.status = 'cancelled'; handleStatusUpdate(req, res); });
-router.put('/:id/complete', (req, res) => { req.body.status = 'completed'; handleStatusUpdate(req, res); });
+const withSwapStatus = (status) => (req, res) => {
+    req.body = { ...(req.body && typeof req.body === 'object' ? req.body : {}), status };
+    return handleStatusUpdate(req, res);
+};
+
+router.put('/:id/accept', withSwapStatus('accepted'));
+router.put('/:id/reject', withSwapStatus('rejected'));
+router.put('/:id/cancel', withSwapStatus('cancelled'));
+router.put('/:id/complete', withSwapStatus('completed'));
 router.post('/:id/confirm-completion', confirmSwapCompletion);
 router.put('/:id/confirm', confirmSwapCompletion);
 router.put('/:id/confirm-completion', confirmSwapCompletion);
