@@ -78,17 +78,22 @@ class Swap {
                 [swapId, requester_id]
             );
 
-            // 4. Create notification for owner
+            // 4. Fetch book title for notification (still inside tx, read-only)
             const [bookRows] = await connection.execute('SELECT title FROM books WHERE id = ?', [requested_book_id]);
             const title = bookRows.length > 0 ? bookRows[0].title : 'your book';
-            await Notification.create({
-                user_id: owner_id,
-                title: 'New Swap Proposal',
-                message: `A fellow reader proposed an exchange for your book "${title}".`,
-                type: 'swap_request'
-            });
 
             await connection.commit();
+
+            // 5. Fire notification AFTER commit — uses pool connection, must not run inside tx
+            Promise.allSettled([
+                Notification.create({
+                    user_id: owner_id,
+                    title: 'New Swap Proposal',
+                    message: `A fellow reader proposed an exchange for your book "${title}".`,
+                    type: 'swap_request'
+                })
+            ]).catch(() => {});
+
             return swapId;
         } catch (error) {
             await connection.rollback();
@@ -321,6 +326,8 @@ class Swap {
             const request = requestRows[0];
             if (!request) throw new Error('Swap request not found');
 
+            let acceptedBookTitle = 'your requested book';
+
             // 1. Business Logic & validations per status
             if (status === 'accepted') {
                 if (request.status !== 'pending' && request.status !== 'counter_offered') {
@@ -356,21 +363,13 @@ class Swap {
                 );
                 
                 const [bookRows] = await connection.execute('SELECT title FROM books WHERE id = ?', [request.requested_book_id]);
-                const bookTitle = bookRows.length > 0 ? bookRows[0].title : 'your requested book';
+                acceptedBookTitle = bookRows.length > 0 ? bookRows[0].title : 'your requested book';
                 
                 // Record in timeline
                 await connection.execute(
                     'INSERT INTO swap_timeline (swap_id, status, message, actor_id) VALUES (?, "accepted", "Exchange request accepted! Please choose how you want to exchange the books.", ?)',
                     [id, userId || null]
                 );
-
-                // Notify requester
-                await Notification.create({
-                    user_id: request.requester_id,
-                    title: 'Swap Proposal Accepted!',
-                    message: `Your exchange proposal for "${bookTitle}" was accepted. Please choose your preferred exchange method!`,
-                    type: 'swap_accepted'
-                });
             } 
             else if (status === 'completed') {
                 // Mark both books as 'swapped'
@@ -383,27 +382,12 @@ class Swap {
                     'INSERT INTO swap_timeline (swap_id, status, message, actor_id) VALUES (?, "completed", "Book exchange marked as completed.", ?)',
                     [id, userId || null]
                 );
-
-                const partnerId = parseInt(userId, 10) === parseInt(request.requester_id, 10) ? request.owner_id : request.requester_id;
-                await Notification.create({
-                    user_id: partnerId,
-                    title: 'Swap Completed',
-                    message: `The book exchange has been marked as completed successfully. Enjoy your new read!`,
-                    type: 'swap_completed'
-                });
             }
             else if (status === 'rejected') {
                 await connection.execute(
                     'INSERT INTO swap_timeline (swap_id, status, message, actor_id) VALUES (?, "rejected", "Exchange proposal was declined by the owner.", ?)',
                     [id, userId || null]
                 );
-
-                await Notification.create({
-                    user_id: request.requester_id,
-                    title: 'Swap Request Declined',
-                    message: `The owner declined the exchange request. You can propose another book.`,
-                    type: 'swap_rejected'
-                });
             }
             else if (status === 'cancelled') {
                 // If the swap was previously accepted or reserved, release books back to available
@@ -425,6 +409,38 @@ class Swap {
             );
 
             await connection.commit();
+
+            // Fire notifications AFTER commit — Notification.create uses pool (not tx connection)
+            if (status === 'accepted') {
+                Promise.allSettled([
+                    Notification.create({
+                        user_id: request.requester_id,
+                        title: 'Swap Proposal Accepted!',
+                        message: `Your exchange proposal for "${acceptedBookTitle}" was accepted. Please choose your preferred exchange method!`,
+                        type: 'swap_accepted'
+                    })
+                ]).catch(() => {});
+            } else if (status === 'completed') {
+                const partnerId = parseInt(userId, 10) === parseInt(request.requester_id, 10) ? request.owner_id : request.requester_id;
+                Promise.allSettled([
+                    Notification.create({
+                        user_id: partnerId,
+                        title: 'Swap Completed',
+                        message: `The book exchange has been marked as completed successfully. Enjoy your new read!`,
+                        type: 'swap_completed'
+                    })
+                ]).catch(() => {});
+            } else if (status === 'rejected') {
+                Promise.allSettled([
+                    Notification.create({
+                        user_id: request.requester_id,
+                        title: 'Swap Request Declined',
+                        message: `The owner declined the exchange request. You can propose another book.`,
+                        type: 'swap_rejected'
+                    })
+                ]).catch(() => {});
+            }
+
             return true;
         } catch (error) {
             await connection.rollback();
@@ -558,20 +574,6 @@ class Swap {
                     'INSERT INTO swap_timeline (swap_id, status, message, actor_id) VALUES (?, "contact_shared", "Mutual consent granted! Verified contact emails are now unlocked for both readers.", ?)',
                     [swapId, userId]
                 );
-
-                await Notification.create({
-                    user_id: swap.requester_id,
-                    title: 'Contact Details Unlocked',
-                    message: 'Both readers have consented to share email addresses. You can now coordinate your book handover directly.',
-                    type: 'swap_contact_shared'
-                });
-
-                await Notification.create({
-                    user_id: swap.owner_id,
-                    title: 'Contact Details Unlocked',
-                    message: 'Both readers have consented to share email addresses. You can now coordinate your book handover directly.',
-                    type: 'swap_contact_shared'
-                });
             }
 
             await connection.execute(`
@@ -584,6 +586,15 @@ class Swap {
             `, [requesterConsent, ownerConsent, nextStatus, swapId]);
 
             await connection.commit();
+
+            // Fire notifications AFTER commit — Notification.create uses pool (not tx connection)
+            if (requesterConsent === 1 && ownerConsent === 1) {
+                const contactMsg = 'Both readers have consented to share email addresses. You can now coordinate your book handover directly.';
+                Promise.allSettled([
+                    Notification.create({ user_id: swap.requester_id, title: 'Contact Details Unlocked', message: contactMsg, type: 'swap_contact_shared' }),
+                    Notification.create({ user_id: swap.owner_id, title: 'Contact Details Unlocked', message: contactMsg, type: 'swap_contact_shared' })
+                ]).catch(() => {});
+            }
 
             return await this.getSwapDetails(swapId, userId);
         } catch (error) {
@@ -1006,6 +1017,7 @@ class Swap {
             }
 
             // Check if BOTH participants have paid
+            let bothPaidMsg = null;
             if (requesterPaid === 1 && ownerPaid === 1) {
                 if (swap.status !== 'payment_completed' && swap.courier_status !== 'payment_confirmed' && swap.courier_status !== 'pickup_scheduled') {
                     nextStatus = 'payment_completed';
@@ -1027,19 +1039,8 @@ class Swap {
                         );
                     }
 
-                    await Notification.create({
-                        user_id: swap.requester_id,
-                        title: 'Exchange Payment Confirmed!',
-                        message: `Both shipping payments received! Reference: ${courierTracking}. Courier pickup has been scheduled.`,
-                        type: 'swap_payment_complete'
-                    });
-
-                    await Notification.create({
-                        user_id: swap.owner_id,
-                        title: 'Exchange Payment Confirmed!',
-                        message: `Both shipping payments received! Reference: ${courierTracking}. Courier pickup has been scheduled.`,
-                        type: 'swap_payment_complete'
-                    });
+                    // Note: notifications sent after commit below
+                    bothPaidMsg = `Both shipping payments received! Reference: ${courierTracking}. Courier pickup has been scheduled.`;
                 }
             }
 
@@ -1057,6 +1058,15 @@ class Swap {
             `, [requesterPaid, ownerPaid, nextStatus, courierStatus, courierTracking, collectionDate, deliveryDate, swapId]);
 
             await connection.commit();
+
+            // Fire notifications AFTER commit — Notification.create uses pool (not tx connection)
+            if (bothPaidMsg) {
+                Promise.allSettled([
+                    Notification.create({ user_id: swap.requester_id, title: 'Exchange Payment Confirmed!', message: bothPaidMsg, type: 'swap_payment_complete' }),
+                    Notification.create({ user_id: swap.owner_id, title: 'Exchange Payment Confirmed!', message: bothPaidMsg, type: 'swap_payment_complete' })
+                ]).catch(() => {});
+            }
+
             return await this.getSwapDetails(swapId, userId);
         } catch (error) {
             await connection.rollback();
@@ -2146,21 +2156,13 @@ class Swap {
                     [id, completionMsg, userId]
                 );
 
-                await Notification.create({
-                    user_id: request.requester_id,
-                    title: 'Book Exchange Completed!',
-                    message: completionMsg,
-                    type: 'swap_completed'
-                });
-
-                await Notification.create({
-                    user_id: request.owner_id,
-                    title: 'Book Exchange Completed!',
-                    message: completionMsg,
-                    type: 'swap_completed'
-                });
-
                 await connection.commit();
+
+                // Fire notifications and socket AFTER commit — Notification.create uses pool (not tx connection)
+                Promise.allSettled([
+                    Notification.create({ user_id: request.requester_id, title: 'Book Exchange Completed!', message: completionMsg, type: 'swap_completed' }),
+                    Notification.create({ user_id: request.owner_id, title: 'Book Exchange Completed!', message: completionMsg, type: 'swap_completed' })
+                ]).catch(() => {});
 
                 try {
                     const socket = require('../socket');
@@ -2257,14 +2259,18 @@ class Swap {
                 [id, `Owner proposed a counter-offer book: "${bookRows[0].title}".`, userId]
             );
 
-            await Notification.create({
-                user_id: request.requester_id,
-                title: 'Counter-Offer Proposed',
-                message: `Owner has proposed swapping for your book "${bookRows[0].title}" instead.`,
-                type: 'swap_counter'
-            });
-
             await connection.commit();
+
+            // Fire notification AFTER commit — Notification.create uses pool (not tx connection)
+            Promise.allSettled([
+                Notification.create({
+                    user_id: request.requester_id,
+                    title: 'Counter-Offer Proposed',
+                    message: `Owner has proposed swapping for your book "${bookRows[0].title}" instead.`,
+                    type: 'swap_counter'
+                })
+            ]).catch(() => {});
+
             return true;
         } catch (error) {
             await connection.rollback();
