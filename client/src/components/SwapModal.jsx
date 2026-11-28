@@ -5,7 +5,8 @@ import bookService from '../services/bookService';
 import swapService from '../services/swapService';
 import toast from 'react-hot-toast';
 
-const SwapModal = ({ requestedBook, onClose }) => {
+const SwapModal = ({ requestedBook, book, onClose }) => {
+  const targetBook = requestedBook || book;
   const [myBooks, setMyBooks] = useState([]);
   const [selectedBookId, setSelectedBookId] = useState(null);
   const [message, setMessage] = useState('');
@@ -13,14 +14,17 @@ const SwapModal = ({ requestedBook, onClose }) => {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetchMyBooks();
-  }, []);
+    if (targetBook) {
+      fetchMyBooks();
+    }
+  }, [targetBook]);
 
   const fetchMyBooks = async () => {
     try {
       const { data } = await bookService.getMyBooks();
+      const booksList = Array.isArray(data) ? data : (Array.isArray(data?.books) ? data.books : []);
       // Only books available for swap can be offered
-      setMyBooks(data.filter(b => b.status === 'available'));
+      setMyBooks(booksList.filter(b => b.status === 'available'));
     } catch (error) {
       toast.error('Failed to load your books');
     } finally {
@@ -28,12 +32,14 @@ const SwapModal = ({ requestedBook, onClose }) => {
     }
   };
 
+  if (!targetBook) return null;
+
   const handleSubmit = async () => {
     if (!selectedBookId) return toast.error('Select a book to offer');
     setSubmitting(true);
     try {
       await swapService.requestSwap({
-        requested_book_id: requestedBook.id,
+        requested_book_id: targetBook.id,
         offered_book_id: selectedBookId,
         message
       });
@@ -81,8 +87,8 @@ const SwapModal = ({ requestedBook, onClose }) => {
           <div className="p-10">
              <div className="flex items-center justify-between mb-10 gap-6">
                 <div className="flex flex-col items-center flex-1 text-center">
-                   <img src={requestedBook.cover_image} className="w-20 aspect-[3/4] object-cover rounded-xl shadow-md mb-3" />
-                   <h4 className="text-xs font-black text-slate-900 line-clamp-1">{requestedBook.title}</h4>
+                   <img src={targetBook.cover_image} className="w-20 aspect-[3/4] object-cover rounded-xl shadow-md mb-3" />
+                   <h4 className="text-xs font-black text-slate-900 line-clamp-1">{targetBook.title}</h4>
                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Their Book</p>
                 </div>
                 <div className="flex flex-col items-center">

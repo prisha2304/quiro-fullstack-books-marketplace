@@ -607,7 +607,7 @@ const BookDetails = () => {
 
       {/* Swap Modal */}
       {showSwapModal && (
-        <SwapModal book={book} onClose={() => setShowSwapModal(false)} />
+        <SwapModal requestedBook={book} onClose={() => setShowSwapModal(false)} />
       )}
 
     </div>
