@@ -2101,7 +2101,13 @@ class Swap {
                 throw new Error('Only participating readers can confirm swap completion');
             }
 
-            const allowedStatuses = ['accepted', 'arranged', 'contact_shared', 'awaiting_payment', 'payment_completed', 'collection_scheduled', 'book_collected', 'in_transit', 'delivered', 'dispatched', 'received'];
+            const allowedStatuses = [
+                'accepted', 'arranged', 'contact_shared', 'awaiting_payment', 'payment_completed',
+                'payment_confirmed', 'collection_scheduled', 'pickup_scheduled',
+                'pickup_partner_assigned', 'pickup_partner_en_route',
+                'book_collected', 'in_transit', 'out_for_delivery',
+                'delivered', 'awaiting_confirmations', 'dispatched', 'received'
+            ];
             if (!allowedStatuses.includes(request.status) && request.courier_status !== 'delivered') {
                 if (request.status === 'completed') {
                     return {
