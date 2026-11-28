@@ -80,7 +80,7 @@ router.post('/', protect, (req, res) => {
       if (error?.http_code === 403 && isCloudinaryConfigured) {
         try {
           const pingRes = await cloudinary.api.ping();
-          logger.info('Cloudinary ping diagnostic on 403', {
+          logger.error('Cloudinary ping diagnostic on 403', {
             status: pingRes?.status || 'ok'
           });
         } catch (pingErr) {
